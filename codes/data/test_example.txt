@@ -1,0 +1,10 @@
+/home/fyp/DeepCrack/codes/data/images/CFD_001.jpg /home/fyp/DeepCrack/codes/data/images/CFD_001.jpg
+/home/fyp/DeepCrack/codes/data/images/CFD_002.jpg /home/fyp/DeepCrack/codes/data/images/CFD_002.jpg
+/home/fyp/DeepCrack/codes/data/images/CFD_003.jpg /home/fyp/DeepCrack/codes/data/images/CFD_003.jpg
+/home/fyp/DeepCrack/codes/data/images/CFD_004.jpg /home/fyp/DeepCrack/codes/data/images/CFD_004.jpg
+/home/fyp/DeepCrack/codes/data/images/CFD_005.jpg /home/fyp/DeepCrack/codes/data/images/CFD_005.jpg
+/home/fyp/DeepCrack/codes/data/images/CFD_006.jpg /home/fyp/DeepCrack/codes/data/images/CFD_006.jpg
+/home/fyp/DeepCrack/codes/data/images/CFD_007.jpg /home/fyp/DeepCrack/codes/data/images/CFD_007.jpg
+/home/fyp/DeepCrack/codes/data/images/CFD_008.jpg /home/fyp/DeepCrack/codes/data/images/CFD_008.jpg
+/home/fyp/DeepCrack/codes/data/OurImages/Crack.jpeg /home/fyp/DeepCrack/codes/data/OurImages/Crack.jpeg
+/home/fyp/DeepCrack/codes/data/OurImages/Crack2.jpeg /home/fyp/DeepCrack/codes/data/OurImages/Crack2.jpeg
