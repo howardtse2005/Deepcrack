@@ -12,7 +12,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 def test(test_data_path='data/test_example.txt', # Path to the test data files
          save_path='deepcrack_results/', # Path to the test results directory
-         pretrained_model='checkpoints/test_good.pth', ): # Change this to the path of your pth file
+         pretrained_model='checkpoints/test.pth', ): # Change this to the path of your pth file
     if not os.path.exists(save_path):
         os.mkdir(save_path)
 

@@ -3,8 +3,8 @@ import os
 def create_dataset_file():
     # Paths
     image_dir = "/home/fyp/DeepCrack/codes/data/images"
-    mask_dir = "/home/fyp/DeepCrack/codes/data/images"
-    output_file = "/home/fyp/DeepCrack/codes/data/test_example.txt"
+    mask_dir = "/home/fyp/DeepCrack/codes/data/masks"
+    output_file = "/home/fyp/DeepCrack/codes/data/train_example.txt"
     # Get all image files
     try:
         image_files = sorted([f for f in os.listdir(image_dir) if f.endswith('.jpg')])

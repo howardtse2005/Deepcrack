@@ -3,6 +3,8 @@
 /codes/data/images/
 /codes/data/masks/
 /codes/data/FalsePositives/
+/codes/data/Crack/
+/codes/data/NonCrack/
 /codes/deepcrack_results/
 /codes/checkpoints/test_good.pth
 /codes/checkpoints/test.pth

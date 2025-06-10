@@ -6,6 +6,24 @@ def resize_and_pad(img, mask, target_size=(512, 512)):
     # Ensure mask dimensions match image dimensions
     img_h, img_w = img.shape[:2]
     mask_h, mask_w = mask.shape[:2]
+    
+    # Check if dimensions are rotated relative to each other (width/height swapped)
+    rotated = False
+    if img_h != mask_h or img_w != mask_w:
+        # Check if aspect ratios are inverted (potential 90-degree rotation)
+        img_ratio = img_w / img_h
+        mask_ratio = mask_w / mask_h
+        
+        # If image is wide but mask is tall or vice versa
+        if (img_ratio > 1 and mask_ratio < 1) or (img_ratio < 1 and mask_ratio > 1):
+            print(f"Detected potential 90-degree rotation. Img ratio: {img_ratio:.2f}, Mask ratio: {mask_ratio:.2f}")
+            # Rotate image 90 degrees to match mask orientation
+            img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+            img_h, img_w = img.shape[:2]  # Update dimensions after rotation
+            rotated = True
+            print(f"Image rotated. New dimensions: {img_w}x{img_h}")
+    
+    # After potential rotation correction, resize mask if needed
     if img_h != mask_h or img_w != mask_w:
         print(f"Warning: Image dimensions ({img_w}x{img_h}) don't match mask dimensions ({mask_w}x{mask_h}). Resizing mask to match.")
         mask = cv2.resize(mask, (img_w, img_h), interpolation=cv2.INTER_NEAREST)
@@ -40,6 +58,9 @@ def visualize(image_path, mask_path):
     if mask is None:
         raise ValueError(f"Failed to load mask from {mask_path}")
 
+    print(f"Original image dimensions: {img.shape[:2]}")
+    print(f"Original mask dimensions: {mask.shape[:2]}")
+    
     # Apply resizing and padding
     img_resized, mask_resized = resize_and_pad(img, mask)
 

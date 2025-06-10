@@ -1,8 +1,5 @@
-/home/fyp/DeepCrack/codes/data/images/noncrack_noncrack_concrete_wall_92_11.jpg.jpg /home/fyp/DeepCrack/codes/data/masks/noncrack_noncrack_concrete_wall_92_11.jpg.jpg
-/home/fyp/DeepCrack/codes/data/images/CFD_001.jpg /home/fyp/DeepCrack/codes/data/masks/CFD_001.jpg
-/home/fyp/DeepCrack/codes/data/images/CRACK500_20160329_103609_641_361.jpg /home/fyp/DeepCrack/codes/data/masks/CRACK500_20160329_103609_641_361.jpg
-/home/fyp/DeepCrack/codes/data/images/Volker_DSC01627_334_13_1539_1339.jpg /home/fyp/DeepCrack/codes/data/masks/Volker_DSC01627_334_13_1539_1339.jpg
-/home/fyp/DeepCrack/codes/data/images/Rissbilder_for_Florian_9S6A3095_169_1704_3640_3551.jpg /home/fyp/DeepCrack/codes/data/masks/Rissbilder_for_Florian_9S6A3095_169_1704_3640_3551.jpg
-/home/fyp/DeepCrack/codes/data/images/GAPS384_test_0193_541_641.jpg /home/fyp/DeepCrack/codes/data/masks/GAPS384_test_0193_541_641.jpg
-/home/fyp/DeepCrack/codes/data/images/DeepCrack_IMG33-13.jpg /home/fyp/DeepCrack/codes/data/masks/DeepCrack_IMG33-13.jpg
-/home/fyp/DeepCrack/codes/data/images/GAPS384_train_1324_1_641.jpg /home/fyp/DeepCrack/codes/data/masks/GAPS384_train_1324_1_641.jpg
+/home/fyp/DeepCrack/codes/data/Crack/test/rgb/1.JPG /home/fyp/DeepCrack/codes/data/Crack/test/gt/1_GT.png
+/home/fyp/DeepCrack/codes/data/Crack/test/rgb/2.JPG /home/fyp/DeepCrack/codes/data/Crack/test/gt/2_GT.png
+/home/fyp/DeepCrack/codes/data/Crack/test/rgb/3.JPG /home/fyp/DeepCrack/codes/data/Crack/test/gt/3_GT.png
+/home/fyp/DeepCrack/codes/data/Crack/test/rgb/4.JPG /home/fyp/DeepCrack/codes/data/Crack/test/gt/4_GT.png
+/home/fyp/DeepCrack/codes/data/Crack/test/rgb/5.JPG /home/fyp/DeepCrack/codes/data/Crack/test/gt/5_GT.png
