@@ -7,8 +7,8 @@ import time
 
 def main():
     # Create output directories if they don't exist
-    output_dir_color = "data/Crack/test/rgb"
-    output_dir_depth = "data/Crack/test/depth"
+    output_dir_color = "data/Crack/20250611/rgb"
+    output_dir_depth = "data/Crack/20250611/depth"
     os.makedirs(output_dir_color, exist_ok=True)
     os.makedirs(output_dir_depth, exist_ok=True)
     

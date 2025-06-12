@@ -29,7 +29,7 @@ class dataReadPip(object):
 
         img = cv2.imread(item[0])
         mask = cv2.imread(item[1])
-
+        
         if len(mask.shape) != 2:
             mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
 

@@ -3,6 +3,19 @@ import numpy as np
 import argparse
 
 def resize_and_pad(img, mask, target_size=(512, 512)):
+    if img is None:
+        raise ValueError(f"Failed to load image")
+        
+    # Convert from BGR (OpenCV default) to RGB for proper training
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        
+    # Check if image has 3 channels (is RGB)
+    if len(img.shape) != 3 or img.shape[2] != 3:
+        print(f"Warning: Image is not RGB (shape: {img.shape}). Converting to RGB.")
+        # If image is grayscale, convert to RGB by duplicating the single channel
+        if len(img.shape) == 2:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+                
     # Ensure mask dimensions match image dimensions
     img_h, img_w = img.shape[:2]
     mask_h, mask_w = mask.shape[:2]

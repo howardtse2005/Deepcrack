@@ -28,7 +28,7 @@ class Config:
     val_every = 200
 
     # training
-    epoch = 500
+    epoch = 1000
     pretrained_model = ''
     weight_decay = 0.0000
     lr_decay = 0.1
