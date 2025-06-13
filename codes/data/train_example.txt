@@ -1,5 +1,3 @@
-/home/fyp/DeepCrack/codes/data/Crack/test/rgb/1.JPG /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/1_GT.png
-/home/fyp/DeepCrack/codes/data/Crack/test/rgb/10.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/10_GT.png
 /home/fyp/DeepCrack/codes/data/Crack/test/rgb/11.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/11_GT.png
 /home/fyp/DeepCrack/codes/data/Crack/test/rgb/12.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/12_GT.png
 /home/fyp/DeepCrack/codes/data/Crack/test/rgb/13.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/13_GT.png
@@ -36,7 +34,6 @@
 /home/fyp/DeepCrack/codes/data/Crack/test/rgb/41.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/41_GT.png
 /home/fyp/DeepCrack/codes/data/Crack/test/rgb/42.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/42_GT.png
 /home/fyp/DeepCrack/codes/data/Crack/test/rgb/43.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/43_GT.png
-/home/fyp/DeepCrack/codes/data/Crack/test/rgb/5.JPG /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/5_GT.png
 /home/fyp/DeepCrack/codes/data/Crack/test/rgb/6.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/6_GT.png
 /home/fyp/DeepCrack/codes/data/Crack/test/rgb/7.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/7_GT.png
 /home/fyp/DeepCrack/codes/data/Crack/test/rgb/8.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/8_GT.png

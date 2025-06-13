@@ -28,14 +28,14 @@ class Config:
     val_every = 200
 
     # training
-    epoch = 1000
+    epoch = 500
     pretrained_model = ''
     weight_decay = 0.0000
     lr_decay = 0.1
     lr = 1e-3
     momentum = 0.9
     use_adam = True  # Use Adam optimizer
-    train_batch_size = 8
+    train_batch_size = 4
     val_batch_size = 4
     test_batch_size = 4
 

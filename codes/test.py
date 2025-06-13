@@ -12,11 +12,11 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 def test(test_data_path='data/test_example.txt', # Path to the test data files
          save_path='deepcrack_results/', # Path to the test results directory
-         pretrained_model='checkpoints/test_good_2.pth', ): # Change this to the path of your pth file
+         pretrained_model='checkpoints/test_good_5.pth', ): # Change this to the path of your pth file
     if not os.path.exists(save_path):
         os.mkdir(save_path)
 
-    test_pipline = dataReadPip(transforms=None)
+    test_pipline = dataReadPip(transforms=None, crop=False) # Set crop=True if you want to perform random cropping in the test
 
     test_list = readIndex(test_data_path)
 

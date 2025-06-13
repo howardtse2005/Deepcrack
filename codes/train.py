@@ -19,8 +19,8 @@ def main():
     data_augment_op = augCompose(transforms=[[RandomColorJitter, 0.5], [RandomBlur, 0.2]])
 
     ## SELF-ADDED (Specify target size for resizing)
-    train_pipline = dataReadPip(transforms=data_augment_op, target_size=(256, 256))
-    test_pipline = dataReadPip(transforms=None, target_size=(256, 256))
+    train_pipline = dataReadPip(transforms=data_augment_op)
+    test_pipline = dataReadPip(transforms=None)
 
     train_dataset = loadedDataset(readIndex(cfg.train_data_path, shuffle=True), preprocess=train_pipline)
 

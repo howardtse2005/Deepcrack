@@ -1,5 +1,1 @@
-/home/fyp/DeepCrack/codes/data/Crack/test/rgb/1.JPG /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/1_GT.png
-/home/fyp/DeepCrack/codes/data/Crack/test/rgb/10.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/10_GT.png
-/home/fyp/DeepCrack/codes/data/Crack/test/rgb/11.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/11_GT.png
-/home/fyp/DeepCrack/codes/data/Crack/test/rgb/12.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/12_GT.png
-/home/fyp/DeepCrack/codes/data/Crack/test/rgb/13.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/13_GT.png
+/home/fyp/DeepCrack/codes/data/Crack/test/rgb/5.JPG /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/5_GT.png
