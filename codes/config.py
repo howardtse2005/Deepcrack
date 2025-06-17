@@ -27,9 +27,18 @@ class Config:
     vis_train_img_every = 120
     val_every = 200
 
+    # Image and crop settings
+    target_width = 448
+    target_height = 448
+    target_size = (target_width, target_height)
+    kernel_size = 3  # Kernel size for convolutions
+    min_size = 448   # Minimum size for images
+    num_crops = 10   # Total number of crops per image
+    num_crops_with_cracks = 5  # Number of crops that should contain cracks
+
     # training
     epoch = 500
-    pretrained_model = ''
+    pretrained_model = ''  # Path to the pretrained model
     weight_decay = 0.0000
     lr_decay = 0.1
     lr = 1e-3
@@ -39,13 +48,23 @@ class Config:
     val_batch_size = 4
     test_batch_size = 4
 
+    # Loss configuration
+    use_focal_loss = True  # Whether to use Focal Loss
+    focal_alpha = 0.66
+    focal_gamma = 3.0  # Focusing parameter (higher values focus more on hard examples)
+    focal_beta = 1.0   # Global scaling factor for the focal term
+    pos_pixel_weight = 1  # Legacy parameter, used when use_focal_loss = False
+
     acc_sigmoid_th = 0.5
-    pos_pixel_weight = 1
 
     # checkpointer
     save_format = ''
     save_acc = -1
     save_pos_acc = -1
+
+    # TensorBoard settings
+    tensorboard_dir = 'runs/deepcrack'
+    export_loss_dir = 'deepcrack_results/loss'  # Directory to save loss curve JPGs
 
     def _parse(self, kwargs):
         state_dict = self._state_dict()

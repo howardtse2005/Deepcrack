@@ -1,10 +1,11 @@
 from torch import nn
 import torch
 import torch.nn.functional as F
+from config import Config as cfg
 
 
 def Conv3X3(in_, out):
-    return torch.nn.Conv2d(in_, out, 3, padding=1)
+    return torch.nn.Conv2d(in_, out, cfg.kernel_size, padding=cfg.kernel_size//2)
 
 
 class ConvRelu(nn.Module):

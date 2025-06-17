@@ -3,6 +3,7 @@ import numpy as np
 from torch.utils.data import Dataset
 import torch
 import random
+from config import Config as cfg
 
 
 def readIndex(index_path, shuffle=False):
@@ -21,7 +22,8 @@ def readIndex(index_path, shuffle=False):
 
 class dataReadPip(object):
 
-    def __init__(self, crop=True, transforms=None, target_size=(448, 448), min_size = 448, crop_size=(448, 448), num_crops=40, num_crops_with_cracks=20):
+    def __init__(self, crop=True, transforms=None, target_size=cfg.target_size, min_size=cfg.min_size, 
+                 crop_size=cfg.target_size, num_crops=cfg.num_crops, num_crops_with_cracks=cfg.num_crops_with_cracks):
         self.transforms = transforms
         self.crop = crop
         self.target_size = target_size
@@ -63,20 +65,6 @@ class dataReadPip(object):
             lab = cv2.resize(lab, (img_w, img_h), interpolation=cv2.INTER_NEAREST)
 
         if not self.crop:
-            ### Pad the image to become square instead of performing random cropping
-            # Add padding to make the image square
-            h, w = img.shape[:2]
-            if h != w:
-                max_dim = max(h, w)
-                # Create square canvas with padding
-                img_padded = np.zeros((max_dim, max_dim, 3), dtype=img.dtype)
-                mask_padded = np.zeros((max_dim, max_dim), dtype=lab.dtype)
-                pad_h = (max_dim - h) // 2
-                pad_w = (max_dim - w) // 2
-                img_padded[pad_h:pad_h+h, pad_w:pad_w+w, :] = img
-                mask_padded[pad_h:pad_h+h, pad_w:pad_w+w] = lab
-                img, lab = img_padded, mask_padded
-                
             # Resize images and labels to the target size
             img = cv2.resize(img, self.target_size, interpolation=cv2.INTER_LINEAR)
             lab = cv2.resize(lab, self.target_size, interpolation=cv2.INTER_NEAREST)
@@ -86,7 +74,7 @@ class dataReadPip(object):
 
             img = _preprocess_img(img)
             lab = _preprocess_lab(lab)
-            return [img, lab]
+            return (img, lab)
         
         ### If self.crop is True, perform random cropping 
         # Resize if either dimension is less than crop_size, maintaining aspect ratio

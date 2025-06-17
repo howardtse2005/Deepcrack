@@ -9,8 +9,106 @@ import torch
 import os
 import cv2
 import sys
+import datetime
+import time
 
 os.environ["CUDA_VISIBLE_DEVICES"] = cfg.gpu_id
+
+
+def save_config_to_file(model_path=None):
+    """
+    Save all configuration parameters to a text file
+    Args:
+        model_path: Path to the saved model, if available
+    """
+    # Create directory if it doesn't exist
+    config_dir = 'deepcrack_results/config'
+    os.makedirs(config_dir, exist_ok=True)
+
+    # Create a timestamp for the filename
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Create a descriptive filename
+    if model_path:
+        model_name = os.path.basename(model_path)
+        filename = f"{timestamp}_{model_name}_config.txt"
+    else:
+        filename = f"{timestamp}_config.txt"
+
+    filepath = os.path.join(config_dir, filename)
+
+    # Write configuration to file
+    with open(filepath, 'w') as f:
+        # Write header
+        f.write("=" * 50 + "\n")
+        f.write(f"DeepCrack Training Configuration - {timestamp}\n")
+        f.write("=" * 50 + "\n\n")
+
+        # Write image and crop configuration
+        f.write("IMAGE AND CROP CONFIGURATION:\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"target_width: {cfg.target_width}\n")
+        f.write(f"target_height: {cfg.target_height}\n")
+        f.write(f"target_size: {cfg.target_size}\n")
+        f.write(f"kernel_size: {cfg.kernel_size}\n")
+        f.write(f"min_size: {cfg.min_size}\n")
+        f.write(f"num_crops: {cfg.num_crops}\n")
+        f.write(f"num_crops_with_cracks: {cfg.num_crops_with_cracks}\n")
+        f.write("\n")
+
+        # Write loss configuration with emphasis
+        f.write("LOSS CONFIGURATION:\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"use_focal_loss: {cfg.use_focal_loss}\n")
+        if cfg.use_focal_loss:
+            f.write(f"focal_alpha: {cfg.focal_alpha} (Class balance weight for cracks)\n")
+            f.write(f"focal_gamma: {cfg.focal_gamma} (Focus on hard examples)\n")
+            f.write(f"focal_beta: {cfg.focal_beta} (Global scaling factor)\n")
+        else:
+            f.write(f"pos_pixel_weight: {cfg.pos_pixel_weight}\n")
+        f.write("\n")
+
+        # Write training configuration
+        f.write("TRAINING CONFIGURATION:\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"learning_rate: {cfg.lr}\n")
+        f.write(f"optimizer: {'Adam' if cfg.use_adam else 'SGD'}\n")
+        f.write(f"momentum: {cfg.momentum}\n")
+        f.write(f"weight_decay: {cfg.weight_decay}\n")
+        f.write(f"lr_decay: {cfg.lr_decay}\n")
+        f.write(f"batch_size: {cfg.train_batch_size}\n")
+        f.write(f"epochs: {cfg.epoch}\n")
+        if cfg.pretrained_model:
+            f.write(f"pretrained_model: {cfg.pretrained_model}\n")
+        f.write("\n")
+
+        # Write dataset configuration
+        f.write("DATASET CONFIGURATION:\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"train_data_path: {cfg.train_data_path}\n")
+        f.write(f"val_data_path: {cfg.val_data_path}\n")
+        f.write(f"test_data_path: {cfg.test_data_path}\n")
+        f.write("\n")
+
+        # Write model saving information
+        f.write("MODEL SAVING CONFIGURATION:\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"checkpoint_path: {cfg.checkpoint_path}\n")
+        f.write(f"saver_path: {cfg.saver_path}\n")
+        f.write(f"max_save: {cfg.max_save}\n")
+        if model_path:
+            f.write(f"saved_model: {model_path}\n")
+        f.write("\n")
+
+        # Write other configuration
+        f.write("OTHER CONFIGURATION:\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"name: {cfg.name}\n")
+        f.write(f"gpu_id: {cfg.gpu_id}\n")
+        f.write(f"acc_sigmoid_th: {cfg.acc_sigmoid_th}\n")
+
+    print(f"Configuration saved to {filepath}")
+    return filepath
 
 
 def main():
@@ -58,8 +156,13 @@ def main():
     try:
 
         for epoch in range(1, cfg.epoch):
-            trainer.vis.log('Start Epoch %d ...' % epoch, 'train info')
+            trainer.vis.log(f'Start Epoch {epoch} ...', 'train info')
+            trainer.vis.set_epoch(epoch)  # Update epoch for TensorBoard
             model.train()
+
+            # Track total loss for this epoch
+            epoch_total_loss = 0.0
+            epoch_samples = 0
 
             # ---------------------  training ------------------- #
             bar = tqdm(enumerate(train_loader), total=len(train_loader))
@@ -67,8 +170,13 @@ def main():
             for idx, (img, lab) in bar:
                 data, target = img.type(torch.cuda.FloatTensor).to(device), lab.type(torch.cuda.FloatTensor).to(device)
                 pred = trainer.train_op(data, target)
+                
+                # Accumulate total loss for this epoch
+                epoch_total_loss += trainer.log_loss['total_loss']
+                epoch_samples += 1
+                
                 if idx % cfg.vis_train_loss_every == 0:
-                    trainer.vis.log(trainer.log_loss, 'train_loss')
+                    trainer.vis.log_dict(trainer.log_loss, 'train_loss')
                     trainer.vis.plot_many({
                         'train_total_loss': trainer.log_loss['total_loss'],
                         'train_output_loss': trainer.log_loss['output_loss'],
@@ -81,7 +189,7 @@ def main():
 
                 if idx % cfg.vis_train_acc_every == 0:
                     trainer.acc_op(pred[0], target)
-                    trainer.vis.log(trainer.log_acc, 'train_acc')
+                    trainer.vis.log_dict(trainer.log_acc, 'train_acc')
                     trainer.vis.plot_many({
                         'train_mask_acc': trainer.log_acc['mask_acc'],
                         'train_mask_pos_acc': trainer.log_acc['mask_pos_acc'],
@@ -177,19 +285,41 @@ def main():
                     bar.set_description('Epoch %d --- Training --- :' % epoch)
                     model.train()
 
+            # Calculate and print average loss for this epoch
+            epoch_avg_loss = epoch_total_loss / max(epoch_samples, 1)
+            print(f"\nEpoch {epoch} completed - Average Loss: {epoch_avg_loss:.6f}")
+
             if epoch != 0:
                 trainer.saver.save(model, tag='%s_epoch(%d)' % (
                     cfg.name, epoch))
                 trainer.vis.log('Save Model -%s_epoch(%d)' % (
                     cfg.name, epoch), 'train info')
 
-    except KeyboardInterrupt:
+        # Save configuration at the end of training
+        save_config_to_file(model_path=trainer.saver.show_save_pth_name)
+        
+        # Export a single loss curve only at the end of training
+        loss_curve_path = trainer.export_loss_curves("training_complete")
+        trainer.vis.log(f'Loss curves saved to {loss_curve_path}', 'train info')
 
+    except KeyboardInterrupt:
+        # Save model on interruption
         trainer.saver.save(model, tag='Auto_Save_Model')
         print('\n Catch KeyboardInterrupt, Auto Save final model : %s' % trainer.saver.show_save_pth_name)
         trainer.vis.log('Catch KeyboardInterrupt, Auto Save final model : %s' % trainer.saver.show_save_pth_name,
-                        'train info')
+                      'train info')
+
+        # Export loss curves only when interrupted
+        loss_curve_path = trainer.export_loss_curves("training_interrupted") 
+        print(f'Loss curves saved to {loss_curve_path}')
+        
+        # Also save configuration on interruption
+        config_path = save_config_to_file(model_path=trainer.saver.show_save_pth_name)
+        print(f'Configuration saved to {config_path}')
+
         trainer.vis.log('Training End!!')
+        # Close TensorBoard writer
+        trainer.vis.close()
         try:
             sys.exit(0)
         except SystemExit:
