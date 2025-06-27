@@ -2,8 +2,8 @@ import cv2
 import os
 import numpy as np
 
-input_dir = '/home/fyp/DeepCrack/codes/data/NonCrack/test/gt'
-output_dir = '/home/fyp/DeepCrack/codes/data/NonCrack/test/gt_fixed'
+input_dir = '/home/fyp/DeepCrack/codes/data/Crack/test/gt'
+output_dir = '/home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed'
 os.makedirs(output_dir, exist_ok=True)
 
 for fname in os.listdir(input_dir):

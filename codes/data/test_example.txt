@@ -1,1 +1,3 @@
-/home/fyp/DeepCrack/codes/data/Crack/test/rgb/11.jpg /home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed/11_GT.png
+/home/fyp/DeepCrack/codes/data/benchmark_images/crops/rgb/1.jpg /home/fyp/DeepCrack/codes/data/benchmark_images/crops/gt/1_GT.png
+/home/fyp/DeepCrack/codes/data/benchmark_images/crops/rgb/2.jpg /home/fyp/DeepCrack/codes/data/benchmark_images/crops/gt/2_GT.png
+/home/fyp/DeepCrack/codes/data/benchmark_images/crops/rgb/3.jpg /home/fyp/DeepCrack/codes/data/benchmark_images/crops/gt/3_GT.png

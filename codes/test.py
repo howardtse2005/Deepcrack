@@ -1,12 +1,15 @@
 from data.dataset import readIndex, dataReadPip, loadedDataset
 from model.deepcrack import DeepCrack
-from trainer import DeepCrackTrainer
+from model.hnet import HNet  # Need to import HNet model
+from model.unet import UNet  # Need to import UNet model
+from trainer import DeepCrackTrainer, UNetTrainer
 import cv2
 from tqdm import tqdm
 import numpy as np
 import torch
 import os
 import datetime
+from config import Config as cfg
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
@@ -101,11 +104,148 @@ def calculate_metrics(pred, gt, threshold=0.5):
     return metrics
 
 
-def test(test_data_path='data/test_example.txt', # Path to the test data files
-         save_path='deepcrack_results/images', # Path to the test results directory
-         eval_path='deepcrack_results/eval', # Path to save evaluation metrics
-         pretrained_model='checkpoints/test_good_12.pth', # Change this to the path of your pth file
-         threshold=0.1):  # Add threshold parameter with reasonable default
+def calculate_pr_metrics_at_thresholds(predictions, groundtruths, thresholds):
+    """
+    Calculate precision, recall, and F-measure for multiple thresholds
+    
+    Args:
+        predictions: List of prediction arrays (values between 0-1)
+        groundtruths: List of ground truth arrays (values between 0-1)
+        thresholds: List of thresholds to evaluate
+        
+    Returns:
+        tuple: Arrays of precision, recall, and F-measure at each threshold
+    """
+    # Check if we have data to process
+    if not predictions or not groundtruths:
+        print("Warning: No prediction or ground truth data for benchmark calculation")
+        return {
+            'precisions': np.zeros(len(thresholds)),
+            'recalls': np.zeros(len(thresholds)),
+            'f_measures': np.zeros(len(thresholds)),
+            'ODS': 0.0,
+            'ODS_threshold': thresholds[0],
+            'OIS': 0.0,
+            'AP': 0.0
+        }
+        
+    num_thresholds = len(thresholds)
+    precisions = np.zeros(num_thresholds)
+    recalls = np.zeros(num_thresholds)
+    f_measures = np.zeros(num_thresholds)
+    
+    # For ODS: aggregate TP, FP, FN across all images
+    total_tp = np.zeros(num_thresholds)
+    total_fp = np.zeros(num_thresholds)
+    total_fn = np.zeros(num_thresholds)
+    
+    # For OIS: store best F-measure for each image
+    image_best_f_measures = []
+    
+    # For each image
+    for pred, gt in zip(predictions, groundtruths):
+        # Calculate TP, FP, FN at each threshold for this image
+        image_tp = np.zeros(num_thresholds)
+        image_fp = np.zeros(num_thresholds)
+        image_fn = np.zeros(num_thresholds)
+        image_f_measures = np.zeros(num_thresholds)
+        
+        for i, threshold in enumerate(thresholds):
+            # Binarize at this threshold
+            pred_binary = (pred > threshold).astype(np.uint8)
+            gt_binary = (gt > 0.5).astype(np.uint8)
+            
+            # Calculate metrics
+            tp = np.sum((pred_binary == 1) & (gt_binary == 1))
+            fp = np.sum((pred_binary == 1) & (gt_binary == 0))
+            fn = np.sum((pred_binary == 0) & (gt_binary == 1))
+            
+            # Update for ODS calculation
+            total_tp[i] += tp
+            total_fp[i] += fp
+            total_fn[i] += fn
+            
+            # Calculate for OIS
+            if tp + fp > 0:
+                image_precision = tp / (tp + fp)
+            else:
+                image_precision = 0
+                
+            if tp + fn > 0:
+                image_recall = tp / (tp + fn)
+            else:
+                image_recall = 0
+                
+            if image_precision + image_recall > 0:
+                image_f = 2 * (image_precision * image_recall) / (image_precision + image_recall)
+            else:
+                image_f = 0
+                
+            image_f_measures[i] = image_f
+            
+            image_tp[i] = tp
+            image_fp[i] = fp
+            image_fn[i] = fn
+        
+        # Find best F-measure for this image (for OIS)
+        best_f = np.max(image_f_measures)
+        image_best_f_measures.append(best_f)
+    # Calculate ODS
+    for i in range(num_thresholds):
+        if total_tp[i] + total_fp[i] > 0:
+            precisions[i] = total_tp[i] / (total_tp[i] + total_fp[i])
+        else:
+            precisions[i] = 0
+            
+        if total_tp[i] + total_fn[i] > 0:
+            recalls[i] = total_tp[i] / (total_tp[i] + total_fn[i])
+        else:
+            recalls[i] = 0
+            
+        if precisions[i] + recalls[i] > 0:
+            f_measures[i] = 2 * (precisions[i] * recalls[i]) / (precisions[i] + recalls[i])
+        else:
+            f_measures[i] = 0
+    
+    # Calculate OIS
+    ois = np.mean(image_best_f_measures)
+    
+    # Calculate AP
+    # Sort by increasing recall
+    sorted_indices = np.argsort(recalls)
+    sorted_recalls = recalls[sorted_indices]
+    sorted_precisions = precisions[sorted_indices]
+    
+    # Interpolate precision to handle zigzag effect
+    for i in range(len(sorted_precisions) - 2, -1, -1):
+        sorted_precisions[i] = max(sorted_precisions[i], sorted_precisions[i + 1])
+    
+    # AP calculation with trapezoid rule
+    ap = 0
+    for i in range(1, len(sorted_recalls)):
+        ap += (sorted_recalls[i] - sorted_recalls[i-1]) * sorted_precisions[i]
+    
+    # Get ODS (optimal dataset scale)
+    ods_idx = np.argmax(f_measures)
+    ods_threshold = thresholds[ods_idx]
+    ods = f_measures[ods_idx]
+    
+    return {
+        'precisions': precisions,
+        'recalls': recalls,
+        'f_measures': f_measures,
+        'ODS': ods,
+        'ODS_threshold': ods_threshold,
+        'OIS': ois,
+        'AP': ap
+    }
+
+
+def test(test_data_path='data/test_example.txt',
+         save_path='deepcrack_results/images',
+         eval_path='deepcrack_results/eval',
+         pretrained_model='checkpoints/testtesttest.pth',
+         threshold=0.1):
     
     # Create timestamp for folder names
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -132,14 +272,27 @@ def test(test_data_path='data/test_example.txt', # Path to the test data files
     # -------------------- build trainer --------------------- #
 
     device = torch.device("cuda")
-    num_gpu = torch.cuda.device_count()
-
-    model = DeepCrack()
-
+    num_gpu = torch.cuda.device_count()    # Select model based on config
+    if cfg.model_type == 'hnet':
+        model = HNet()
+        print("Using HNet architecture")
+    elif cfg.model_type == 'unet':
+        model = UNet()
+        print("Using UNet architecture")
+    else:
+        model = DeepCrack()
+        print("Using DeepCrack architecture")
+        
     model = torch.nn.DataParallel(model, device_ids=range(num_gpu))
     model.to(device)
 
-    trainer = DeepCrackTrainer(model).to(device)
+    # Select trainer based on config
+    if cfg.model_type in ['hnet', 'unet']:
+        trainer = UNetTrainer(model).to(device)
+        print("Using UNetTrainer (single output)")
+    else:
+        trainer = DeepCrackTrainer(model).to(device)
+        print("Using DeepCrackTrainer (multi-output)")
 
     model.load_state_dict(trainer.saver.load(pretrained_model, multi_gpu=True))
 
@@ -147,19 +300,31 @@ def test(test_data_path='data/test_example.txt', # Path to the test data files
     
     # Store metrics for all images
     all_metrics = []
-    
-    # Create evaluation file path with matching timestamp
+    all_predictions = []
+    all_groundtruths = []
+      # Create evaluation file path with matching timestamp
     eval_file = os.path.join(eval_path, f"{result_folder_name}.txt")
-
+    
     with torch.no_grad():
         for idx, (img, lab) in enumerate(tqdm(test_loader)):
             test_data, test_target = img.type(torch.cuda.FloatTensor).to(device), lab.type(torch.cuda.FloatTensor).to(device)
             test_pred = trainer.val_op(test_data, test_target)
-            test_pred = torch.sigmoid(test_pred[0].cpu().squeeze())
+            
+            # Handle different model types
+            if cfg.model_type in ['hnet', 'unet']:
+                # Single output model
+                test_pred = torch.sigmoid(test_pred.cpu().squeeze())
+            else:
+                # Multi-output model (DeepCrack) - use main output
+                test_pred = torch.sigmoid(test_pred[0].cpu().squeeze())
             
             # Convert prediction and ground truth to numpy arrays
             pred_np = test_pred.numpy()
             gt_np = lab.cpu().squeeze().numpy()
+            
+            # Store predictions and ground truths for benchmark calculation
+            all_predictions.append(pred_np)
+            all_groundtruths.append(gt_np)
             
             # Calculate metrics with specified threshold
             metrics = calculate_metrics(pred_np, gt_np, threshold=threshold)
@@ -220,6 +385,11 @@ def test(test_data_path='data/test_example.txt', # Path to the test data files
             # Generate a unique filename for each crop in the timestamped folder
             save_name = os.path.join(timestamped_save_path, f"crop_{idx:04d}.png")
             cv2.imwrite(save_name, display_img)
+    
+    # Calculate benchmark metrics (ODS, OIS, AP)
+    print(f"Collected {len(all_predictions)} images for benchmark evaluation")
+    thresholds = np.linspace(0.01, 0.99, 99)  # 99 thresholds from 0.01 to 0.99
+    benchmark_metrics = calculate_pr_metrics_at_thresholds(all_predictions, all_groundtruths, thresholds)
     
     # Calculate and save average metrics
     with open(eval_file, 'w') as f:
@@ -290,12 +460,23 @@ def test(test_data_path='data/test_example.txt', # Path to the test data files
         f.write(f"  Global Recall: {global_recall:.4f}\n")
         f.write(f"  Global F1 Score: {global_f1:.4f}\n")
         f.write(f"  Global IoU: {global_iou:.4f}\n")
+        
+        # Add benchmark metrics section
+        f.write("\nBoundary Detection Benchmark Metrics:\n")
+        f.write("-" * 40 + "\n")
+        f.write(f"ODS (Optimal Dataset Scale): {benchmark_metrics['ODS']:.4f} at threshold {benchmark_metrics['ODS_threshold']:.2f}\n")
+        f.write(f"OIS (Optimal Image Scale): {benchmark_metrics['OIS']:.4f}\n")
+        f.write(f"AP (Average Precision): {benchmark_metrics['AP']:.4f}\n")
     
     print(f"Evaluation results saved to {eval_file}")
     print(f"Images saved to {timestamped_save_path}")
     print(f"Average accuracy: {avg_metrics['accuracy']:.4f}")
     print(f"Average F1-Score: {avg_metrics['f1_score']:.4f}")
     print(f"Average IoU: {avg_metrics['iou']:.4f}")
+    print(f"Benchmark metrics:")
+    print(f"ODS: {benchmark_metrics['ODS']:.4f}")
+    print(f"OIS: {benchmark_metrics['OIS']:.4f}")
+    print(f"AP: {benchmark_metrics['AP']:.4f}")
 
 
 if __name__ == '__main__':

@@ -2,7 +2,9 @@ from data.augmentation import augCompose, RandomBlur, RandomColorJitter
 from data.dataset import readIndex, dataReadPip, loadedDataset
 from tqdm import tqdm
 from model.deepcrack import DeepCrack
-from trainer import DeepCrackTrainer
+from model.hnet import HNet
+from model.unet import UNet
+from trainer import DeepCrackTrainer, UNetTrainer
 from config import Config as cfg
 import numpy as np
 import torch
@@ -44,6 +46,12 @@ def save_config_to_file(model_path=None):
         f.write(f"DeepCrack Training Configuration - {timestamp}\n")
         f.write("=" * 50 + "\n\n")
 
+        # Write model configuration
+        f.write("MODEL CONFIGURATION:\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"model_type: {cfg.model_type}\n")
+        f.write("\n")
+
         # Write image and crop configuration
         f.write("IMAGE AND CROP CONFIGURATION:\n")
         f.write("-" * 30 + "\n")
@@ -67,6 +75,16 @@ def save_config_to_file(model_path=None):
         else:
             f.write(f"pos_pixel_weight: {cfg.pos_pixel_weight}\n")
         f.write("\n")
+
+        # Write HNet-specific configuration if applicable
+        if cfg.model_type == 'hnet':
+            f.write("HNET-SPECIFIC CONFIGURATION:\n")
+            f.write("-" * 30 + "\n")
+            f.write(f"group_norm_groups: {cfg.group_norm_groups}\n")
+            f.write(f"noise_suppression_weight: {cfg.noise_suppression_weight}\n")
+            f.write(f"ms_dilations: {cfg.ms_dilations}\n")
+        
+            f.write("\n")
 
         # Write training configuration
         f.write("TRAINING CONFIGURATION:\n")
@@ -136,13 +154,27 @@ def main():
     # -------------------- build trainer --------------------- #
 
     device = torch.device("cuda")
-    num_gpu = torch.cuda.device_count()
+    num_gpu = torch.cuda.device_count()    # Select model based on config
+    if cfg.model_type == 'hnet':
+        model = HNet()
+        print("Using HNet architecture")
+    elif cfg.model_type == 'unet':
+        model = UNet()
+        print("Using UNet architecture")
+    else:
+        model = DeepCrack()
+        print("Using DeepCrack architecture")
 
-    model = DeepCrack()
     model = torch.nn.DataParallel(model, device_ids=range(num_gpu))
     model.to(device)
 
-    trainer = DeepCrackTrainer(model).to(device)
+    # Select trainer based on model type
+    if cfg.model_type in ['hnet', 'unet']:
+        trainer = UNetTrainer(model).to(device)
+        print("Using UNetTrainer (single output)")
+    else:
+        trainer = DeepCrackTrainer(model).to(device)
+        print("Using DeepCrackTrainer (multi-output)")
 
     if cfg.pretrained_model:
         pretrained_dict = trainer.saver.load(cfg.pretrained_model, multi_gpu=True)
@@ -162,11 +194,10 @@ def main():
 
             # Track total loss for this epoch
             epoch_total_loss = 0.0
-            epoch_samples = 0
-
-            # ---------------------  training ------------------- #
+            epoch_samples = 0            # ---------------------  training ------------------- #
             bar = tqdm(enumerate(train_loader), total=len(train_loader))
             bar.set_description('Epoch %d --- Training --- :' % epoch)
+            
             for idx, (img, lab) in bar:
                 data, target = img.type(torch.cuda.FloatTensor).to(device), lab.type(torch.cuda.FloatTensor).to(device)
                 pred = trainer.train_op(data, target)
@@ -177,49 +208,80 @@ def main():
                 
                 if idx % cfg.vis_train_loss_every == 0:
                     trainer.vis.log_dict(trainer.log_loss, 'train_loss')
-                    trainer.vis.plot_many({
-                        'train_total_loss': trainer.log_loss['total_loss'],
-                        'train_output_loss': trainer.log_loss['output_loss'],
-                        'train_fuse5_loss': trainer.log_loss['fuse5_loss'],
-                        'train_fuse4_loss': trainer.log_loss['fuse4_loss'],
-                        'train_fuse3_loss': trainer.log_loss['fuse3_loss'],
-                        'train_fuse2_loss': trainer.log_loss['fuse2_loss'],
-                        'train_fuse1_loss': trainer.log_loss['fuse1_loss'],
-                    })
+                    if cfg.model_type in ['hnet', 'unet']:
+                        # Single output model
+                        trainer.vis.plot_many({
+                            'train_total_loss': trainer.log_loss['total_loss'],
+                            'train_output_loss': trainer.log_loss['output_loss'],
+                        })
+                    else:
+                        # Multi-output model (DeepCrack)
+                        trainer.vis.plot_many({
+                            'train_total_loss': trainer.log_loss['total_loss'],
+                            'train_output_loss': trainer.log_loss['output_loss'],
+                            'train_fuse5_loss': trainer.log_loss['fuse5_loss'],
+                            'train_fuse4_loss': trainer.log_loss['fuse4_loss'],
+                            'train_fuse3_loss': trainer.log_loss['fuse3_loss'],
+                            'train_fuse2_loss': trainer.log_loss['fuse2_loss'],
+                            'train_fuse1_loss': trainer.log_loss['fuse1_loss'],
+                        })
 
                 if idx % cfg.vis_train_acc_every == 0:
-                    trainer.acc_op(pred[0], target)
+                    if cfg.model_type in ['hnet', 'unet']:
+                        trainer.acc_op(pred, target)
+                    else:
+                        trainer.acc_op(pred[0], target)
                     trainer.vis.log_dict(trainer.log_acc, 'train_acc')
                     trainer.vis.plot_many({
                         'train_mask_acc': trainer.log_acc['mask_acc'],
                         'train_mask_pos_acc': trainer.log_acc['mask_pos_acc'],
                         'train_mask_neg_acc': trainer.log_acc['mask_neg_acc'],
                     })
+                    
                 if idx % cfg.vis_train_img_every == 0:
-                    trainer.vis.img_many({
-                        'train_img': data.cpu(),
-                        'train_output': torch.sigmoid(pred[0].contiguous().cpu()),
-                        'train_lab': target.unsqueeze(1).cpu(),
-                        'train_fuse5': torch.sigmoid(pred[1].contiguous().cpu()),
-                        'train_fuse4': torch.sigmoid(pred[2].contiguous().cpu()),
-                        'train_fuse3': torch.sigmoid(pred[3].contiguous().cpu()),
-                        'train_fuse2': torch.sigmoid(pred[4].contiguous().cpu()),
-                        'train_fuse1': torch.sigmoid(pred[5].contiguous().cpu()),
-                    })
+                    if cfg.model_type in ['hnet', 'unet']:
+                        # Single output model
+                        trainer.vis.img_many({
+                            'train_img': data.cpu(),
+                            'train_output': torch.sigmoid(pred.contiguous().cpu()),
+                            'train_lab': target.unsqueeze(1).cpu(),
+                        })
+                    else:
+                        # Multi-output model (DeepCrack)
+                        trainer.vis.img_many({
+                            'train_img': data.cpu(),
+                            'train_output': torch.sigmoid(pred[0].contiguous().cpu()),
+                            'train_lab': target.unsqueeze(1).cpu(),
+                            'train_fuse5': torch.sigmoid(pred[1].contiguous().cpu()),
+                            'train_fuse4': torch.sigmoid(pred[2].contiguous().cpu()),
+                            'train_fuse3': torch.sigmoid(pred[3].contiguous().cpu()),
+                            'train_fuse2': torch.sigmoid(pred[4].contiguous().cpu()),
+                            'train_fuse1': torch.sigmoid(pred[5].contiguous().cpu()),
+                        })
 
                 if idx % cfg.val_every == 0:
-                    trainer.vis.log('Start Val %d ....' % idx, 'train info')
                     # -------------------- val ------------------- #
+                    trainer.vis.log('Start Val %d ....' % idx, 'train info') 
                     model.eval()
-                    val_loss = {
-                        'eval_total_loss': 0,
-                        'eval_output_loss': 0,
-                        'eval_fuse5_loss': 0,
-                        'eval_fuse4_loss': 0,
-                        'eval_fuse3_loss': 0,
-                        'eval_fuse2_loss': 0,
-                        'eval_fuse1_loss': 0,
-                    }
+                    
+                    if cfg.model_type in ['hnet', 'unet']:
+                        # Single output model
+                        val_loss = {
+                            'eval_total_loss': 0,
+                            'eval_output_loss': 0,
+                        }
+                    else:
+                        # Multi-output model
+                        val_loss = {
+                            'eval_total_loss': 0,
+                            'eval_output_loss': 0,
+                            'eval_fuse5_loss': 0,
+                            'eval_fuse4_loss': 0,
+                            'eval_fuse3_loss': 0,
+                            'eval_fuse2_loss': 0,
+                            'eval_fuse1_loss': 0,
+                        }
+                        
                     val_acc = {
                         'mask_acc': 0,
                         'mask_pos_acc': 0,
@@ -233,45 +295,64 @@ def main():
                             val_data, val_target = img.type(torch.cuda.FloatTensor).to(device), lab.type(
                                 torch.cuda.FloatTensor).to(device)
                             val_pred = trainer.val_op(val_data, val_target)
-                            trainer.acc_op(val_pred[0], val_target)
-                            val_loss['eval_total_loss'] += trainer.log_loss['total_loss']
-                            val_loss['eval_output_loss'] += trainer.log_loss['output_loss']
-                            val_loss['eval_fuse5_loss'] += trainer.log_loss['fuse5_loss']
-                            val_loss['eval_fuse4_loss'] += trainer.log_loss['fuse4_loss']
-                            val_loss['eval_fuse3_loss'] += trainer.log_loss['fuse3_loss']
-                            val_loss['eval_fuse2_loss'] += trainer.log_loss['fuse2_loss']
-                            val_loss['eval_fuse1_loss'] += trainer.log_loss['fuse1_loss']
+                            
+                            if cfg.model_type in ['hnet', 'unet']:
+                                trainer.acc_op(val_pred, val_target)
+                                val_loss['eval_total_loss'] += trainer.log_loss['total_loss']
+                                val_loss['eval_output_loss'] += trainer.log_loss['output_loss']
+                            else:
+                                trainer.acc_op(val_pred[0], val_target)
+                                val_loss['eval_total_loss'] += trainer.log_loss['total_loss']
+                                val_loss['eval_output_loss'] += trainer.log_loss['output_loss']
+                                val_loss['eval_fuse5_loss'] += trainer.log_loss['fuse5_loss']
+                                val_loss['eval_fuse4_loss'] += trainer.log_loss['fuse4_loss']
+                                val_loss['eval_fuse3_loss'] += trainer.log_loss['fuse3_loss']
+                                val_loss['eval_fuse2_loss'] += trainer.log_loss['fuse2_loss']
+                                val_loss['eval_fuse1_loss'] += trainer.log_loss['fuse1_loss']
+                                
                             val_acc['mask_acc'] += trainer.log_acc['mask_acc']
                             val_acc['mask_pos_acc'] += trainer.log_acc['mask_pos_acc']
                             val_acc['mask_neg_acc'] += trainer.log_acc['mask_neg_acc']
                         else:
-                            trainer.vis.img_many({
-                                'eval_img': val_data.cpu(),
-                                'eval_output': torch.sigmoid(val_pred[0].contiguous().cpu()),
-                                'eval_lab': val_target.unsqueeze(1).cpu(),
-                                'eval_fuse5': torch.sigmoid(val_pred[1].contiguous().cpu()),
-                                'eval_fuse4': torch.sigmoid(val_pred[2].contiguous().cpu()),
-                                'eval_fuse3': torch.sigmoid(val_pred[3].contiguous().cpu()),
-                                'eval_fuse2': torch.sigmoid(val_pred[4].contiguous().cpu()),
-                                'eval_fuse1': torch.sigmoid(val_pred[5].contiguous().cpu()),
-
-                            })
-                            trainer.vis.plot_many({
-                                'eval_total_loss': val_loss['eval_total_loss'] / idx,
-                                'eval_output_loss': val_loss['eval_output_loss'] / idx,
-                                'eval_fuse5_loss': val_loss['eval_fuse5_loss'] / idx,
-                                'eval_fuse4_loss': val_loss['eval_fuse4_loss'] / idx,
-                                'eval_fuse3_loss': val_loss['eval_fuse3_loss'] / idx,
-                                'eval_fuse2_loss': val_loss['eval_fuse2_loss'] / idx,
-                                'eval_fuse1_loss': val_loss['eval_fuse1_loss'] / idx,
-
-                            })
+                            if cfg.model_type in ['hnet', 'unet']:
+                                # Single output model
+                                trainer.vis.img_many({
+                                    'eval_img': val_data.cpu(),
+                                    'eval_output': torch.sigmoid(val_pred.contiguous().cpu()),
+                                    'eval_lab': val_target.unsqueeze(1).cpu(),
+                                })
+                                trainer.vis.plot_many({
+                                    'eval_total_loss': val_loss['eval_total_loss'] / idx,
+                                    'eval_output_loss': val_loss['eval_output_loss'] / idx,
+                                })
+                            else:
+                                # Multi-output model
+                                trainer.vis.img_many({
+                                    'eval_img': val_data.cpu(),
+                                    'eval_output': torch.sigmoid(val_pred[0].contiguous().cpu()),
+                                    'eval_lab': val_target.unsqueeze(1).cpu(),
+                                    'eval_fuse5': torch.sigmoid(val_pred[1].contiguous().cpu()),
+                                    'eval_fuse4': torch.sigmoid(val_pred[2].contiguous().cpu()),
+                                    'eval_fuse3': torch.sigmoid(val_pred[3].contiguous().cpu()),
+                                    'eval_fuse2': torch.sigmoid(val_pred[4].contiguous().cpu()),
+                                    'eval_fuse1': torch.sigmoid(val_pred[5].contiguous().cpu()),
+                                })
+                                trainer.vis.plot_many({
+                                    'eval_total_loss': val_loss['eval_total_loss'] / idx,
+                                    'eval_output_loss': val_loss['eval_output_loss'] / idx,
+                                    'eval_fuse5_loss': val_loss['eval_fuse5_loss'] / idx,
+                                    'eval_fuse4_loss': val_loss['eval_fuse4_loss'] / idx,
+                                    'eval_fuse3_loss': val_loss['eval_fuse3_loss'] / idx,
+                                    'eval_fuse2_loss': val_loss['eval_fuse2_loss'] / idx,
+                                    'eval_fuse1_loss': val_loss['eval_fuse1_loss'] / idx,
+                                })
+                            
                             trainer.vis.plot_many({
                                 'eval_mask_acc': val_acc['mask_acc'] / idx,
                                 'eval_mask_neg_acc': val_acc['mask_neg_acc'] / idx,
                                 'eval_mask_pos_acc': val_acc['mask_pos_acc'] / idx,
-
                             })
+                            
                             # ----------------- save model ---------------- #
                             if cfg.save_pos_acc < (val_acc['mask_pos_acc'] / idx) and cfg.save_acc < (
                                     val_acc['mask_acc'] / idx):

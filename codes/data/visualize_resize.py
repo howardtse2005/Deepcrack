@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import random
 import argparse
+import os
 
 def resize_and_pad(img, mask, target_size=(448, 448)):
     # Resize to target size
@@ -10,7 +11,22 @@ def resize_and_pad(img, mask, target_size=(448, 448)):
 
     return img_resized, mask_resized
 
-def visualize(image_path, mask_path):
+def visualize(image_path, mask_path, save_dir=None):
+    # Create save directory if specified
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        img_save_dir = os.path.join(save_dir, 'rgb')
+        mask_save_dir = os.path.join(save_dir, 'gt')
+        # Add directories for crops
+        crops_img_dir = os.path.join(save_dir, 'crops/rgb')
+        crops_mask_dir = os.path.join(save_dir, 'crops/gt')
+        os.makedirs(img_save_dir, exist_ok=True)
+        os.makedirs(mask_save_dir, exist_ok=True)
+        os.makedirs(crops_img_dir, exist_ok=True)
+        os.makedirs(crops_mask_dir, exist_ok=True)
+        print(f"Will save aligned pairs to {save_dir}")
+        print(f"Will save individual crops to {os.path.join(save_dir, 'crops')}")
+
     # Load image and mask
     img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
     if img is None:
@@ -48,6 +64,28 @@ def visualize(image_path, mask_path):
     if img_h != mask_h or img_w != mask_w:
         print(f"Warning: Image dimensions ({img_w}x{img_h}) don't match mask dimensions ({mask_w}x{mask_h}). Resizing mask to match.")
         mask = cv2.resize(mask, (img_w, img_h), interpolation=cv2.INTER_NEAREST)
+
+    # Save the aligned image and mask if requested
+    if save_dir:
+        basename = os.path.splitext(os.path.basename(image_path))[0]
+        # Save aligned image
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)  # Convert back to BGR for OpenCV
+        img_save_path = os.path.join(img_save_dir, f"{basename}.jpg")
+        cv2.imwrite(img_save_path, img_rgb)
+        
+        # Save aligned mask
+        # If mask is binary (0/255), ensure it stays that way
+        if np.max(mask) > 1:
+            # Ensure mask is binary (0/255)
+            mask_binary = np.zeros_like(mask)
+            mask_binary[mask > 127] = 255
+            mask = mask_binary
+            
+        mask_save_path = os.path.join(mask_save_dir, f"{basename}_GT.png")
+        cv2.imwrite(mask_save_path, mask)
+        
+        print(f"Saved aligned image to: {img_save_path}")
+        print(f"Saved aligned mask to: {mask_save_path}")
 
     # Resize if either dimension is less than 448, maintaining aspect ratio
     min_size = 448
@@ -113,6 +151,27 @@ def visualize(image_path, mask_path):
 
         crops = crops_with_white + crops_without_white
 
+    # Save individual crops if a save directory was specified
+    if save_dir:
+        basename = os.path.splitext(os.path.basename(image_path))[0]
+        print(f"Saving {len(crops)} crops for {basename}...")
+        
+        for i, (img_crop, mask_crop) in enumerate(crops):
+            # Determine if this crop contains cracks
+            has_crack = np.any(mask_crop == 255)
+            crop_type = "crack" if has_crack else "no_crack"
+            
+            # Save crop image
+            crop_img_bgr = cv2.cvtColor(img_crop, cv2.COLOR_RGB2BGR)
+            crop_img_path = os.path.join(crops_img_dir, f"{basename}_crop{i:03d}_{crop_type}.jpg")
+            cv2.imwrite(crop_img_path, crop_img_bgr)
+            
+            # Save crop mask
+            crop_mask_path = os.path.join(crops_mask_dir, f"{basename}_crop{i:03d}_{crop_type}_GT.png")
+            cv2.imwrite(crop_mask_path, mask_crop)
+        
+        print(f"Saved {len(crops)} crops to {os.path.join(save_dir, 'crops')}")
+
     # Resize crops to smaller dimensions for visualization
     display_size = (128, 128)  # Define the smaller display size
     resized_crops = [(cv2.resize(crop[0], display_size, interpolation=cv2.INTER_LINEAR),
@@ -142,9 +201,10 @@ def visualize(image_path, mask_path):
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Visualize resized and padded image-GT pair.")
+    parser = argparse.ArgumentParser(description="Visualize resized and padded image-GT pair. Can also save aligned pairs.")
     parser.add_argument("image_path", type=str, help="Path to the input image.")
     parser.add_argument("mask_path", type=str, help="Path to the input ground truth mask.")
+    parser.add_argument("--save_dir", type=str, help="Directory to save aligned image-mask pair (optional).")
     args = parser.parse_args()
 
-    visualize(args.image_path, args.mask_path)
+    visualize(args.image_path, args.mask_path, args.save_dir)

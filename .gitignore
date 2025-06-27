@@ -5,6 +5,7 @@
 /codes/data/FalsePositives/
 /codes/data/Crack/
 /codes/data/NonCrack/
+/codes/data/benchmark_images/
 /codes/deepcrack_results/
 /codes/checkpoints/*.pth
 /codes/checkpoints/DeepCrack_CT260_FT1/checkpoints/*
