@@ -87,8 +87,8 @@ class IDSC(nn.Module):
         return out
 
 class HiLoAttention(nn.Module):
-    """Authentic HiLo Attention from DECS-Net with self-attention"""
-    def __init__(self, dim, num_heads=8, qkv_bias=False, window_size=4, alpha=0.5):
+    """Authentic HiLo Attention from DECS-Net with crack-density-aware weighting"""
+    def __init__(self, dim, num_heads=8, qkv_bias=False, window_size=4, alpha=0.5, density_weight=1.0):
         super().__init__()
         assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
         
@@ -98,6 +98,10 @@ class HiLoAttention(nn.Module):
         self.scale = self.head_dim ** -0.5
         self.ws = window_size
         self.alpha = alpha
+        
+        # Learnable density weighting parameter
+        self.density_weight = nn.Parameter(torch.tensor(density_weight))
+        self.eps = 1e-6  # Small constant to avoid division by zero
         
         # Split heads between low and high frequency
         self.l_heads = int(num_heads * alpha)
@@ -134,6 +138,42 @@ class HiLoAttention(nn.Module):
         if self.h_heads > 0:
             self.h_qkv = DSC(dim, self.h_dim * 3)
             self.h_proj = DSC(self.h_dim, self.h_dim)
+    
+    def compute_edge_boost(self, features):
+        """Compute crack-density-aware attention boosting for edge regions"""
+        B, C, H, W = features.shape
+        
+        # Simple edge detector using gradient magnitude
+        # This approximates crack density without requiring ground truth during inference
+        sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=features.dtype, device=features.device)
+        sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=features.dtype, device=features.device)
+        
+        # Apply to mean across channels to get single gradient map
+        feat_mean = features.mean(dim=1, keepdim=True)  # [B, 1, H, W]
+        
+        # Compute gradients
+        grad_x = F.conv2d(feat_mean, sobel_x.unsqueeze(0).unsqueeze(0), padding=1)
+        grad_y = F.conv2d(feat_mean, sobel_y.unsqueeze(0).unsqueeze(0), padding=1)
+        
+        # Edge magnitude (proxy for crack edges)
+        edge_magnitude = torch.sqrt(grad_x**2 + grad_y**2 + self.eps)
+        
+        # Partition into windows for windowed attention
+        if self.ws > 1:
+            h_group, w_group = H // self.ws, W // self.ws
+            edge_windowed = edge_magnitude.reshape(B, 1, h_group, self.ws, w_group, self.ws)
+            edge_windowed = edge_windowed.permute(0, 2, 4, 3, 5, 1).reshape(B, h_group * w_group, self.ws * self.ws)
+            
+            # Compute edge density per window (higher values = more edges = need more attention)
+            edge_density = edge_windowed.mean(dim=-1, keepdim=True)  # [B, total_groups, 1]
+            
+            # Boost attention for regions with more edges (crack boundaries)
+            # Use learnable parameter to control the strength
+            edge_boost = self.density_weight * torch.log(1 + edge_density)  # [B, total_groups, 1]
+            
+            return edge_boost.unsqueeze(-1)  # [B, total_groups, 1, 1] for broadcasting
+        else:
+            return None
     
     def forward(self, x):
         B, C, H, W = x.shape
@@ -202,8 +242,15 @@ class HiLoAttention(nn.Module):
             
             h_q, h_k, h_v = h_qkv[0], h_qkv[1], h_qkv[2]
             
-            # Windowed self-attention
+            # Windowed self-attention with edge-aware boosting
             h_attn = (h_q @ h_k.transpose(-2, -1)) * self.scale  # [B, total_groups, h_heads, ws*ws, ws*ws]
+            
+            # Apply crack-density-aware edge boosting
+            edge_boost = self.compute_edge_boost(high_feats)  # [B, total_groups, 1, 1]
+            if edge_boost is not None:
+                # Add edge boost to attention scores (more attention to edge regions)
+                h_attn = h_attn + edge_boost.unsqueeze(-1).expand_as(h_attn)
+            
             h_attn = h_attn.softmax(dim=-1)
             
             # Apply attention
@@ -224,11 +271,15 @@ class HiLoAttention(nn.Module):
         return out
 
 class Fusion(nn.Module):
-    """Fusion between spatial and frequency streams with windowed cross-attention"""
-    def __init__(self, dim, window_size=4):
+    """Fusion between spatial and frequency streams with crack-density-aware cross-attention"""
+    def __init__(self, dim, window_size=4, density_weight=0.5):
         super().__init__()
         self.dim = dim
         self.ws = window_size
+        
+        # Learnable density weighting for fusion
+        self.fusion_density_weight = nn.Parameter(torch.tensor(density_weight))
+        self.eps = 1e-6
         
         # Channel attention
         self.channel_attn = nn.Sequential(
@@ -255,6 +306,45 @@ class Fusion(nn.Module):
             nn.BatchNorm2d(dim),
             nn.ReLU()
         )
+    
+    def compute_fusion_edge_boost(self, spatial_feats, freq_feats):
+        """Compute edge boosting for fusion based on spatial-frequency disagreement"""
+        B, C, H, W = spatial_feats.shape
+        
+        # Compute feature difference to identify regions where spatial and frequency disagree
+        # These are often edge/boundary regions that need more attention
+        feat_diff = torch.abs(spatial_feats - freq_feats)
+        disagreement = feat_diff.mean(dim=1, keepdim=True)  # [B, 1, H, W]
+        
+        # Also use gradient-based edge detection on the disagreement map
+        sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], 
+                              dtype=disagreement.dtype, device=disagreement.device)
+        sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], 
+                              dtype=disagreement.dtype, device=disagreement.device)
+        
+        # Compute gradients on disagreement map
+        grad_x = F.conv2d(disagreement, sobel_x.unsqueeze(0).unsqueeze(0), padding=1)
+        grad_y = F.conv2d(disagreement, sobel_y.unsqueeze(0).unsqueeze(0), padding=1)
+        
+        # Combined edge signal: disagreement + gradient magnitude
+        edge_magnitude = torch.sqrt(grad_x**2 + grad_y**2 + self.eps)
+        combined_edge = disagreement + edge_magnitude
+        
+        # Partition into windows for windowed attention
+        if self.ws > 1:
+            h_group, w_group = H // self.ws, W // self.ws
+            edge_windowed = combined_edge.reshape(B, 1, h_group, self.ws, w_group, self.ws)
+            edge_windowed = edge_windowed.permute(0, 2, 4, 3, 5, 1).reshape(B, h_group * w_group, self.ws * self.ws)
+            
+            # Compute edge density per window
+            edge_density = edge_windowed.mean(dim=-1, keepdim=True)  # [B, total_groups, 1]
+            
+            # Boost attention for high-disagreement regions (likely edges/boundaries)
+            edge_boost = self.fusion_density_weight * torch.log(1 + edge_density)  # [B, total_groups, 1]
+            
+            return edge_boost.unsqueeze(-1)  # [B, total_groups, 1, 1] for broadcasting
+        else:
+            return None
         
     def forward(self, x, y):
         B, C, H, W = x.shape
@@ -289,8 +379,15 @@ class Fusion(nn.Module):
         v = v.reshape(B, self.num_heads, self.head_dim, h_group, self.ws, w_group, self.ws)
         v = v.permute(0, 3, 5, 1, 4, 6, 2).reshape(B, total_groups, self.num_heads, self.ws * self.ws, self.head_dim)
         
-        # Windowed cross-attention
+        # Windowed cross-attention with disagreement-aware boosting
         attn = (q @ k.transpose(-2, -1)) * self.scale  # [B, total_groups, num_heads, ws*ws, ws*ws]
+        
+        # Apply fusion edge boosting based on spatial-frequency disagreement
+        fusion_edge_boost = self.compute_fusion_edge_boost(x_att, y_att)  # [B, total_groups, 1, 1]
+        if fusion_edge_boost is not None:
+            # Add edge boost to cross-attention scores (more attention to disagreement regions)
+            attn = attn + fusion_edge_boost.unsqueeze(-1).expand_as(attn)
+        
         attn = attn.softmax(dim=-1)
         
         # Apply attention

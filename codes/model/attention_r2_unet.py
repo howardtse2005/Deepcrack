@@ -136,10 +136,10 @@ class OutConv(nn.Module):
     def forward(self, x):
         return self.conv(x)
 
-class UNet(nn.Module):
+class AttentionR2UNet(nn.Module):
     """Attention R2 U-Net: Combination of Attention U-Net and R2U-Net"""
     def __init__(self, num_classes=1, n_channels=3, bilinear=True, t=2):
-        super(UNet, self).__init__()
+        super(AttentionR2UNet, self).__init__()
         self.n_channels = n_channels
         self.bilinear = bilinear
         self.t = t  # Recurrent time steps

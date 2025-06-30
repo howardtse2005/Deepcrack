@@ -244,7 +244,7 @@ def calculate_pr_metrics_at_thresholds(predictions, groundtruths, thresholds):
 def test(test_data_path='data/test_example.txt',
          save_path='deepcrack_results/images',
          eval_path='deepcrack_results/eval',
-         pretrained_model='checkpoints/testtesttest.pth',
+         pretrained_model='checkpoints/test_unet_full_3.pth',
          threshold=0.1):
     
     # Create timestamp for folder names
