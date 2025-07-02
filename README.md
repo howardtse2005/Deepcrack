@@ -15,8 +15,18 @@
     conda activate deepcrack
     conda install conda-forge::pytorch conda-forge::visdom conda-forge::opencv conda-forge::tqdm anaconda::numpy
     ```
-3.  **Run visdom:**
-    In a new terminal, run
+3.  **Train on your own images**
+    Put all your image-ground truth pairs in the data directory. Then, edit the train_example.txt (for training) and val_example.txt (for validation). The first column contains the path to the rgb image and the second column contains the path to ground truth mask.
+    In the config.py, choose the preferred architecture (unet, deepcrack, hnet).
+    Then, run
     ```bash
-    visdom
+    python3 train.py
+    ```
+4. **Test on your own images**
+    Put all your image-ground truth pairs in the data directory. Then, edit the test_example.txt. The first column contains the path to the rgb image and the second column contains the path to ground truth mask. If you do not have ground truth mask, puth the same path to the rgb image in the second column.
+    In the config.py, choose the preferred architecture (unet, deepcrack, hnet).
+    Then, put the path to the pretrained model (.pth file) in the test.py
+    Then, run
+    ```bash
+    python3 test.py
     ```
