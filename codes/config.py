@@ -63,7 +63,7 @@ class Config:
     save_pos_acc = -1
 
     # Model configuration
-    model_type = 'unet'  # Options: 'deepcrack', 'hnet', 'unet'
+    model_type = 'hnet'  # Options: 'deepcrack', 'hnet', 'unet'
     
     # TensorBoard settings
     tensorboard_dir = 'runs/deepcrack'

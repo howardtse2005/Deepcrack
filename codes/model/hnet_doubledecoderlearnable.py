@@ -81,17 +81,17 @@ class Up(nn.Module):
         return self.conv(x)
 
 class Fusion(nn.Module):
-    """Weighted concatenation fusion for symmetric dual-stream crack detection
+    """Learnable weighted concatenation fusion for symmetric dual-stream crack detection
     
-    Preserves 80/20 weighting while using concatenation benefits.
-    Based on U-Net concatenation philosophy with explicit weight control.
+    Uses learnable weights initialized to 80/20 but allows adaptation during training.
+    Based on U-Net concatenation philosophy with learnable weight control.
     """
     def __init__(self):
         super().__init__()
         
-        # Fixed weights for 80/20 fine/coarse balance
-        self.fine_weight = 0.8
-        self.coarse_weight = 0.2
+        # Learnable weights for fine/coarse balance (initialized to 80/20)
+        self.fine_weight = nn.Parameter(torch.tensor(0.8))
+        self.coarse_weight = nn.Parameter(torch.tensor(0.2))
         
         # U-Net style fusion processing (like decoder blocks)
         self.fusion_conv = nn.Sequential(
@@ -104,18 +104,15 @@ class Fusion(nn.Module):
         )
         
     def forward(self, fine_features, coarse_features):
-        # Step 1: Apply 80/20 weighting before concatenation
-        weighted_fine = self.fine_weight * fine_features      # 80% weight
-        weighted_coarse = self.coarse_weight * coarse_features # 20% weight
+        # Step 1: Apply learnable weighting before concatenation
+        weighted_fine = self.fine_weight * fine_features      # Learnable fine weight
+        weighted_coarse = self.coarse_weight * coarse_features # Learnable coarse weight
         
         # Step 2: Concatenate weighted features (preserves information)
         concatenated = torch.cat([weighted_fine, weighted_coarse], dim=1)  # [B, 2048, H, W]
         
         # Step 3: Process with U-Net style double conv
-        fused = self.fusion_conv(concatenated)  # [B, 1024, H, W]
-        
-        # Step 4: Residual connection to preserve fine details
-        output = fused + fine_features
+        output = self.fusion_conv(concatenated)  # [B, 1024, H, W]
         
         return output
 

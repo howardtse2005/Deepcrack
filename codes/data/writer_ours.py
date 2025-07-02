@@ -2,9 +2,9 @@ import os
 
 def create_dataset_file():
     # Paths
-    image_dir = "/home/fyp/DeepCrack/codes/data/Crack/test/rgb"
-    mask_dir = "/home/fyp/DeepCrack/codes/data/Crack/test/gt_fixed"
-    output_file = "/home/fyp/DeepCrack/codes/data/train_example.txt"
+    image_dir = "/home/fyp/DeepCrack/codes/data/Crack/July2025/crops/rgb"
+    mask_dir = "/home/fyp/DeepCrack/codes/data/Crack/July2025/crops/gt"
+    output_file = "/home/fyp/DeepCrack/codes/data/test_example.txt"
     
     # Get all image files
     try:
