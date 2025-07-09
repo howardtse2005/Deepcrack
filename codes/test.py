@@ -12,6 +12,7 @@ import torch
 import os
 import datetime
 from config import Config as cfg
+import torch.nn.functional as F
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
@@ -33,9 +34,9 @@ def sliding_window_inference(model, image, window_size=448, overlap=0.2):
     C, H, W = image.shape
     stride = int(window_size * (1 - overlap))
     
-    # Calculate number of windows needed
-    h_windows = max(1, (H - window_size) // stride + 1)
-    w_windows = max(1, (W - window_size) // stride + 1)
+    # Ensure complete coverage by calculating windows differently
+    h_windows = (H + stride - 1) // stride
+    w_windows = (W + stride - 1) // stride
     
     # Initialize prediction and weight maps
     prediction = torch.zeros((1, H, W), device=device)
@@ -53,20 +54,28 @@ def sliding_window_inference(model, image, window_size=448, overlap=0.2):
     with torch.no_grad():
         for h_idx in range(h_windows):
             for w_idx in range(w_windows):
-                # Calculate window coordinates
-                h_start = h_idx * stride
-                w_start = w_idx * stride
+                # Calculate window coordinates ensuring full coverage
+                h_start = min(h_idx * stride, H - window_size)
+                w_start = min(w_idx * stride, W - window_size)
+                
+                # Ensure we don't go beyond image boundaries
+                h_start = max(0, h_start)
+                w_start = max(0, w_start)
                 h_end = min(h_start + window_size, H)
                 w_end = min(w_start + window_size, W)
                 
-                # Adjust if we're at the edge
-                if h_end == H:
-                    h_start = H - window_size
-                if w_end == W:
-                    w_start = W - window_size
+                # Extract window with proper padding if needed
+                if h_end - h_start < window_size or w_end - w_start < window_size:
+                    # Pad the window to ensure it's exactly window_size x window_size
+                    window = image[:, h_start:h_end, w_start:w_end]
+                    pad_h = window_size - (h_end - h_start)
+                    pad_w = window_size - (w_end - w_start)
+                    
+                    # Use reflection padding instead of zero padding
+                    window = F.pad(window, (0, pad_w, 0, pad_h), mode='reflect')
+                else:
+                    window = image[:, h_start:h_end, w_start:w_end]
                 
-                # Extract window
-                window = image[:, h_start:h_start+window_size, w_start:w_start+window_size]
                 window_batch = window.unsqueeze(0).to(device)
                 
                 # Get prediction for window
@@ -77,12 +86,20 @@ def sliding_window_inference(model, image, window_size=448, overlap=0.2):
                 
                 window_pred = window_pred.squeeze(0)
                 
+                # Crop prediction back to actual window size if we padded
+                actual_h = h_end - h_start
+                actual_w = w_end - w_start
+                window_pred = window_pred[:, :actual_h, :actual_w]
+                
+                # Create corresponding weight map for this window
+                current_weight = gaussian_weight[:actual_h, :actual_w]
+                
                 # Apply Gaussian weighting
-                weighted_pred = window_pred * gaussian_weight
+                weighted_pred = window_pred * current_weight
                 
                 # Add to full prediction with weights
-                prediction[:, h_start:h_start+window_size, w_start:w_start+window_size] += weighted_pred
-                weight_map[h_start:h_start+window_size, w_start:w_start+window_size] += gaussian_weight
+                prediction[:, h_start:h_end, w_start:w_end] += weighted_pred
+                weight_map[h_start:h_end, w_start:w_end] += current_weight
     
     # Normalize by weights to handle overlaps
     weight_map[weight_map == 0] = 1  # Avoid division by zero
@@ -348,7 +365,7 @@ def calculate_pr_metrics_at_thresholds(predictions, groundtruths, thresholds):
 def test(test_data_path='data/test_example.txt',
          save_path='deepcrack_results/images',
          eval_path='deepcrack_results/eval',
-         pretrained_model='checkpoints/test_good.pth',
+         pretrained_model='checkpoints/test_deepcrack_full_1.pth',
          threshold=0.5):
     
     # Create timestamp for folder names
@@ -415,20 +432,26 @@ def test(test_data_path='data/test_example.txt',
     for idx, item in enumerate(tqdm(test_list)):
         img_path, gt_path = item
         
-        # Load full resolution images
-        img = cv2.imread(img_path)
+        # Load images - use color for input, grayscale for ground truth
+        img = cv2.imread(img_path)  # Load as BGR (3 channels)
         gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
         
         if img is None or gt is None:
             print(f"Failed to load image pair: {img_path}, {gt_path}")
             continue
         
-        # Convert image to tensor
-        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img_tensor = torch.from_numpy(img_rgb.transpose(2, 0, 1)).float() / 255.0
+        # Resize images to be multiples of 32 for model compatibility
+        h, w = img.shape[:2]
+        new_h = (h // 32) * 32
+        new_w = (w // 32) * 32
         
-        # Convert GT to tensor
-        gt_tensor = torch.from_numpy(gt).float() / 255.0
+        img_resized = cv2.resize(img, (new_w, new_h))
+        gt_resized = cv2.resize(gt, (new_w, new_h))
+        
+        # Convert BGR to RGB and normalize
+        img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
+        img_tensor = torch.from_numpy(img_rgb.transpose(2, 0, 1)).float() / 255.0
+        gt_tensor = torch.from_numpy(gt_resized).float() / 255.0
         
         print(f"Processing image {idx}: {img_tensor.shape[1]}x{img_tensor.shape[2]} pixels")
         
@@ -438,7 +461,7 @@ def test(test_data_path='data/test_example.txt',
         
         # Convert to numpy
         pred_np = pred_tensor.cpu().numpy()
-        gt_np = gt_tensor.numpy()
+        gt_np = gt_tensor.cpu().numpy()
         
         # Store for benchmark calculation
         all_predictions.append(pred_np)
@@ -456,6 +479,7 @@ def test(test_data_path='data/test_example.txt',
             scale = max_display_size / max(h, w)
             new_h, new_w = int(h * scale), int(w * scale)
             
+            # Use original color image for display
             display_img = cv2.resize(img, (new_w, new_h))
             display_pred = cv2.resize((pred_np * 255).astype(np.uint8), (new_w, new_h))
             display_gt = cv2.resize((gt_np * 255).astype(np.uint8), (new_w, new_h))
