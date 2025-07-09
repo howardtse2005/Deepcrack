@@ -1,7 +1,9 @@
 from data.dataset import readIndex, dataReadPip, loadedDataset
 from model.deepcrack import DeepCrack
-from model.hnet import HNet  # Need to import HNet model
-from model.unet import UNet  # Need to import UNet model
+from model.hnet import HNet
+from model.unet import UNet 
+from model.attention_unet import AttentionUNet
+from model.segformer import SegFormer 
 from trainer import DeepCrackTrainer, UNetTrainer
 import cv2
 from tqdm import tqdm
@@ -12,6 +14,81 @@ import datetime
 from config import Config as cfg
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+
+
+def sliding_window_inference(model, image, window_size=448, overlap=0.2):
+    """
+    Perform inference on large images using sliding window approach
+    
+    Args:
+        model: Trained model
+        image: Input image tensor (C, H, W)
+        window_size: Size of sliding window (default 448)
+        overlap: Overlap ratio between windows (default 0.2)
+    
+    Returns:
+        prediction: Full resolution prediction tensor
+    """
+    device = next(model.parameters()).device
+    C, H, W = image.shape
+    stride = int(window_size * (1 - overlap))
+    
+    # Calculate number of windows needed
+    h_windows = max(1, (H - window_size) // stride + 1)
+    w_windows = max(1, (W - window_size) // stride + 1)
+    
+    # Initialize prediction and weight maps
+    prediction = torch.zeros((1, H, W), device=device)
+    weight_map = torch.zeros((H, W), device=device)
+    
+    # Create Gaussian weight for blending
+    gaussian_weight = torch.ones((window_size, window_size), device=device)
+    center = window_size // 2
+    for i in range(window_size):
+        for j in range(window_size):
+            dist = ((i - center) ** 2 + (j - center) ** 2) ** 0.5
+            gaussian_weight[i, j] = np.exp(-(dist ** 2) / (2 * (center / 3) ** 2))
+    
+    model.eval()
+    with torch.no_grad():
+        for h_idx in range(h_windows):
+            for w_idx in range(w_windows):
+                # Calculate window coordinates
+                h_start = h_idx * stride
+                w_start = w_idx * stride
+                h_end = min(h_start + window_size, H)
+                w_end = min(w_start + window_size, W)
+                
+                # Adjust if we're at the edge
+                if h_end == H:
+                    h_start = H - window_size
+                if w_end == W:
+                    w_start = W - window_size
+                
+                # Extract window
+                window = image[:, h_start:h_start+window_size, w_start:w_start+window_size]
+                window_batch = window.unsqueeze(0).to(device)
+                
+                # Get prediction for window
+                if cfg.model_type in ['hnet', 'unet', 'attention_unet', 'segformer']:
+                    window_pred = torch.sigmoid(model(window_batch))
+                else:
+                    window_pred = torch.sigmoid(model(window_batch)[0])
+                
+                window_pred = window_pred.squeeze(0)
+                
+                # Apply Gaussian weighting
+                weighted_pred = window_pred * gaussian_weight
+                
+                # Add to full prediction with weights
+                prediction[:, h_start:h_start+window_size, w_start:w_start+window_size] += weighted_pred
+                weight_map[h_start:h_start+window_size, w_start:w_start+window_size] += gaussian_weight
+    
+    # Normalize by weights to handle overlaps
+    weight_map[weight_map == 0] = 1  # Avoid division by zero
+    prediction = prediction / weight_map.unsqueeze(0)
+    
+    return prediction.squeeze(0)
 
 
 def draw_text_with_outline(img, text, position, font, font_scale, text_color, outline_color, thickness=1, outline_thickness=3):
@@ -83,10 +160,14 @@ def calculate_metrics(pred, gt, threshold=0.5):
         metrics['f1_score'] = 0.0
     
     # IoU (Intersection over Union) for positive class
-    if true_positive + false_positive + false_negative > 0:
+    has_positive_pixels = true_positive + false_negative > 0
+    
+    if has_positive_pixels:
         metrics['iou'] = true_positive / (true_positive + false_positive + false_negative)
+        metrics['has_positive_pixels'] = True  # Flag to indicate valid IoU
     else:
-        metrics['iou'] = 0.0
+        metrics['iou'] = float('nan')  # Skip from IoU averaging if no positive pixels
+        metrics['has_positive_pixels'] = False
     
     # Class-specific accuracy
     positive_pixels = true_positive + false_negative
@@ -210,20 +291,41 @@ def calculate_pr_metrics_at_thresholds(predictions, groundtruths, thresholds):
     # Calculate OIS
     ois = np.mean(image_best_f_measures)
     
-    # Calculate AP
-    # Sort by increasing recall
+    # Calculate AP - Fixed implementation
+    # Sort by increasing recall for proper AP calculation
     sorted_indices = np.argsort(recalls)
     sorted_recalls = recalls[sorted_indices]
     sorted_precisions = precisions[sorted_indices]
     
-    # Interpolate precision to handle zigzag effect
-    for i in range(len(sorted_precisions) - 2, -1, -1):
-        sorted_precisions[i] = max(sorted_precisions[i], sorted_precisions[i + 1])
+    # Remove duplicate recall values and interpolate precision
+    unique_recalls = []
+    interpolated_precisions = []
     
-    # AP calculation with trapezoid rule
+    for i in range(len(sorted_recalls)):
+        if i == 0 or sorted_recalls[i] != sorted_recalls[i-1]:
+            unique_recalls.append(sorted_recalls[i])
+            # For this recall level, find the maximum precision at this recall or higher
+            max_precision = 0
+            for j in range(i, len(sorted_recalls)):
+                if sorted_recalls[j] >= sorted_recalls[i]:
+                    max_precision = max(max_precision, sorted_precisions[j])
+            interpolated_precisions.append(max_precision)
+    
+    unique_recalls = np.array(unique_recalls)
+    interpolated_precisions = np.array(interpolated_precisions)
+    
+    # Calculate AP using trapezoid rule on interpolated curve
     ap = 0
-    for i in range(1, len(sorted_recalls)):
-        ap += (sorted_recalls[i] - sorted_recalls[i-1]) * sorted_precisions[i]
+    for i in range(1, len(unique_recalls)):
+        recall_diff = unique_recalls[i] - unique_recalls[i-1]
+        avg_precision = (interpolated_precisions[i] + interpolated_precisions[i-1]) / 2
+        ap += recall_diff * avg_precision
+    
+    # Alternative: Use standard AP calculation method
+    # Start from recall=0 with precision=1 (if we have perfect precision at low recall)
+    if len(unique_recalls) > 0 and unique_recalls[0] > 0:
+        # Add point at (0, max_precision) if it doesn't exist
+        ap += unique_recalls[0] * interpolated_precisions[0]
     
     # Get ODS (optimal dataset scale)
     ods_idx = np.argmax(f_measures)
@@ -237,14 +339,16 @@ def calculate_pr_metrics_at_thresholds(predictions, groundtruths, thresholds):
         'ODS': ods,
         'ODS_threshold': ods_threshold,
         'OIS': ois,
-        'AP': ap
+        'AP': ap,
+        'debug_unique_recalls': unique_recalls,
+        'debug_interpolated_precisions': interpolated_precisions
     }
 
 
 def test(test_data_path='data/test_example.txt',
          save_path='deepcrack_results/images',
          eval_path='deepcrack_results/eval',
-         pretrained_model='checkpoints/testtesttest.pth',
+         pretrained_model='checkpoints/test_good.pth',
          threshold=0.5):
     
     # Create timestamp for folder names
@@ -260,34 +364,35 @@ def test(test_data_path='data/test_example.txt',
     
     print(f"Results will be saved to: {timestamped_save_path}")
     
-    test_pipline = dataReadPip(transforms=None, crop=True) # Set crop=True if you want to perform random cropping in the test
-
+    # Read test data directly without dataset preprocessing
     test_list = readIndex(test_data_path)
 
-    test_dataset = loadedDataset(test_list, preprocess=test_pipline)
-
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1,
-                                              shuffle=False, num_workers=1, drop_last=False)
-
     # -------------------- build trainer --------------------- #
-
     device = torch.device("cuda")
-    num_gpu = torch.cuda.device_count()    # Select model based on config
+    num_gpu = torch.cuda.device_count()
+    
+    # Select model based on config
     if cfg.model_type == 'hnet':
         model = HNet()
         print("Using HNet architecture")
     elif cfg.model_type == 'unet':
         model = UNet()
         print("Using UNet architecture")
+    elif cfg.model_type == 'attention_unet':
+        model = AttentionUNet()
+        print("Using Attention UNet architecture") 
+    elif cfg.model_type == 'segformer':
+        model = SegFormer(num_classes=1, phi=cfg.segformer_variant, pretrained=cfg.segformer_pretrained)
+        print(f"Using SegFormer {cfg.segformer_variant} architecture")
     else:
         model = DeepCrack()
         print("Using DeepCrack architecture")
         
     model = torch.nn.DataParallel(model, device_ids=range(num_gpu))
     model.to(device)
-
+    
     # Select trainer based on config
-    if cfg.model_type in ['hnet', 'unet']:
+    if cfg.model_type in ['hnet', 'unet', 'attention_unet', 'segformer']:
         trainer = UNetTrainer(model).to(device)
         print("Using UNetTrainer (single output)")
     else:
@@ -295,109 +400,138 @@ def test(test_data_path='data/test_example.txt',
         print("Using DeepCrackTrainer (multi-output)")
 
     model.load_state_dict(trainer.saver.load(pretrained_model, multi_gpu=True))
-
     model.eval()
     
     # Store metrics for all images
     all_metrics = []
     all_predictions = []
     all_groundtruths = []
-      # Create evaluation file path with matching timestamp
+    
+    # Create evaluation file path with matching timestamp
     eval_file = os.path.join(eval_path, f"{result_folder_name}.txt")
     
-    with torch.no_grad():
-        for idx, (img, lab) in enumerate(tqdm(test_loader)):
-            test_data, test_target = img.type(torch.cuda.FloatTensor).to(device), lab.type(torch.cuda.FloatTensor).to(device)
-            test_pred = trainer.val_op(test_data, test_target)
+    print("Processing full-resolution images with sliding window inference...")
+    
+    for idx, item in enumerate(tqdm(test_list)):
+        img_path, gt_path = item
+        
+        # Load full resolution images
+        img = cv2.imread(img_path)
+        gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
+        
+        if img is None or gt is None:
+            print(f"Failed to load image pair: {img_path}, {gt_path}")
+            continue
+        
+        # Convert image to tensor
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_tensor = torch.from_numpy(img_rgb.transpose(2, 0, 1)).float() / 255.0
+        
+        # Convert GT to tensor
+        gt_tensor = torch.from_numpy(gt).float() / 255.0
+        
+        print(f"Processing image {idx}: {img_tensor.shape[1]}x{img_tensor.shape[2]} pixels")
+        
+        # Perform sliding window inference
+        with torch.no_grad():
+            pred_tensor = sliding_window_inference(model, img_tensor, window_size=448, overlap=0.2)
+        
+        # Convert to numpy
+        pred_np = pred_tensor.cpu().numpy()
+        gt_np = gt_tensor.numpy()
+        
+        # Store for benchmark calculation
+        all_predictions.append(pred_np)
+        all_groundtruths.append(gt_np)
+        
+        # Calculate metrics
+        metrics = calculate_metrics(pred_np, gt_np, threshold=threshold)
+        all_metrics.append(metrics)
+        
+        # Create visualization (downsample for display if too large)
+        max_display_size = 1200
+        h, w = pred_np.shape
+        
+        if max(h, w) > max_display_size:
+            scale = max_display_size / max(h, w)
+            new_h, new_w = int(h * scale), int(w * scale)
             
-            # Handle different model types
-            if cfg.model_type in ['hnet', 'unet']:
-                # Single output model
-                test_pred = torch.sigmoid(test_pred.cpu().squeeze())
-            else:
-                # Multi-output model (DeepCrack) - use main output
-                test_pred = torch.sigmoid(test_pred[0].cpu().squeeze())
-            
-            # Convert prediction and ground truth to numpy arrays
-            pred_np = test_pred.numpy()
-            gt_np = lab.cpu().squeeze().numpy()
-            
-            # Store predictions and ground truths for benchmark calculation
-            all_predictions.append(pred_np)
-            all_groundtruths.append(gt_np)
-            
-            # Calculate metrics with specified threshold
-            metrics = calculate_metrics(pred_np, gt_np, threshold=threshold)
-            all_metrics.append(metrics)
-            
-            # Add accuracy to the saved image
-            pred_img = (pred_np * 255).astype(np.uint8)
-            gt_img = (gt_np * 255).astype(np.uint8)
-            
-            # Convert input RGB image from tensor (C,H,W) to numpy (H,W,C)
-            rgb_np = img.cpu().squeeze().permute(1, 2, 0).numpy()
-            # Scale from [0,1] to [0,255] and convert to uint8
-            rgb_np = (rgb_np * 255).astype(np.uint8)
-            # Convert from RGB to BGR for OpenCV
-            rgb_np = cv2.cvtColor(rgb_np, cv2.COLOR_RGB2BGR)
-            
-            # Create a 3-panel display image with prediction, ground truth, and original
-            h, w = pred_img.shape
-            
-            # Create 3 horizontal panels
-            display_img = np.zeros((h * 3, w, 3), dtype=np.uint8)
-            
-            # Top panel: prediction (convert to BGR for color visualization)
-            display_img[:h, :, 0] = pred_img  # All channels get same value for grayscale
-            display_img[:h, :, 1] = pred_img
-            display_img[:h, :, 2] = pred_img
-            
-            # Middle panel: ground truth
-            display_img[h:2*h, :, 0] = gt_img
-            display_img[h:2*h, :, 1] = gt_img
-            display_img[h:2*h, :, 2] = gt_img
-            
-            # Bottom panel: original RGB image
-            display_img[2*h:, :, :] = rgb_np
-            
-            # Add labels with black outline to identify each panel
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.8
-            text_color = (255, 255, 255)  # White text
-            outline_color = (0, 0, 0)      # Black outline
-            thickness = 2
-            
-            # Draw text with outline for better visibility
-            draw_text_with_outline(display_img, "Prediction", (10, 30), 
-                                  font, font_scale, text_color, outline_color, thickness)
-            
-            # Add accuracy metrics to prediction panel
-            acc_text = f"Accuracy: {metrics['accuracy']:.4f}, F1: {metrics['f1_score']:.4f}, IoU: {metrics['iou']:.4f}"
-            draw_text_with_outline(display_img, acc_text, (10, 70), 
-                                  font, font_scale * 0.8, text_color, outline_color, thickness)
-            
-            draw_text_with_outline(display_img, "Ground Truth", (10, h + 30), 
-                                  font, font_scale, text_color, outline_color, thickness)
-            
-            draw_text_with_outline(display_img, "Original Image", (10, 2*h + 30), 
-                                  font, font_scale, text_color, outline_color, thickness)
-            
-            # Generate a unique filename for each crop in the timestamped folder
-            save_name = os.path.join(timestamped_save_path, f"crop_{idx:04d}.png")
-            cv2.imwrite(save_name, display_img)
+            display_img = cv2.resize(img, (new_w, new_h))
+            display_pred = cv2.resize((pred_np * 255).astype(np.uint8), (new_w, new_h))
+            display_gt = cv2.resize((gt_np * 255).astype(np.uint8), (new_w, new_h))
+        else:
+            display_img = img
+            display_pred = (pred_np * 255).astype(np.uint8)
+            display_gt = (gt_np * 255).astype(np.uint8)
+        
+        h_disp, w_disp = display_pred.shape
+        
+        # Add white border thickness
+        border_thickness = 5
+        
+        # Create 3-panel display with white borders: Original (top), Ground Truth (middle), Prediction (bottom)
+        total_height = h_disp * 3 + border_thickness * 2  # Add space for 2 borders
+        display_combined = np.ones((total_height, w_disp, 3), dtype=np.uint8) * 255  # Initialize with white
+        
+        # Top panel: original image
+        display_combined[:h_disp, :, :] = display_img
+        
+        # White border between original and ground truth (already white from initialization)
+        
+        # Middle panel: ground truth (starting after first border)
+        gt_start = h_disp + border_thickness
+        gt_end = gt_start + h_disp
+        display_combined[gt_start:gt_end, :, 0] = display_gt
+        display_combined[gt_start:gt_end, :, 1] = display_gt
+        display_combined[gt_start:gt_end, :, 2] = display_gt
+        
+        # White border between ground truth and prediction (already white from initialization)
+        
+        # Bottom panel: prediction (starting after second border)
+        pred_start = gt_end + border_thickness
+        pred_end = pred_start + h_disp
+        display_combined[pred_start:pred_end, :, 0] = display_pred
+        display_combined[pred_start:pred_end, :, 1] = display_pred
+        display_combined[pred_start:pred_end, :, 2] = display_pred
+        
+        # Add labels
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 1.5
+        text_color = (255, 255, 255)
+        outline_color = (0, 0, 0)
+        thickness = 6
+        
+        # Draw labels (adjust positions for borders)
+        draw_text_with_outline(display_combined, "Original Image", (10, 60), 
+                              font, font_scale, text_color, outline_color, thickness)
+        
+        draw_text_with_outline(display_combined, "Ground Truth", (10, gt_start + 60), 
+                              font, font_scale, text_color, outline_color, thickness)
+        
+        draw_text_with_outline(display_combined, "Prediction", (10, pred_start + 60), 
+                              font, font_scale, text_color, outline_color, thickness)
+        
+        # Add metrics (adjust position for borders)
+        acc_text = f"Accuracy: {metrics['accuracy']:.4f}, F1: {metrics['f1_score']:.4f}, IoU: {metrics['iou']:.4f}"
+        draw_text_with_outline(display_combined, acc_text, (10, pred_start + 120), 
+                              font, font_scale * 0.8, text_color, outline_color, thickness)
+        
+        # Save image
+        save_name = os.path.join(timestamped_save_path, f"fullres_{idx:04d}.png")
+        cv2.imwrite(save_name, display_combined)
     
     # Calculate benchmark metrics (ODS, OIS, AP)
     print(f"Collected {len(all_predictions)} images for benchmark evaluation")
-    thresholds = np.linspace(0.01, 0.99, 99)  # 99 thresholds from 0.01 to 0.99
+    thresholds = np.linspace(0.01, 0.99, 99)
     benchmark_metrics = calculate_pr_metrics_at_thresholds(all_predictions, all_groundtruths, thresholds)
     
     # Calculate and save average metrics
     with open(eval_file, 'w') as f:
         # Write header
         f.write("=" * 80 + "\n")
-        f.write(f"DeepCrack Evaluation Results - {timestamp}\n")
+        f.write(f"DeepCrack Full-Resolution Evaluation Results - {timestamp}\n")
         f.write(f"Model: {pretrained_model}\n")
-        f.write(f"Images saved in: {timestamped_save_path}\n")  # Add image path info
+        f.write(f"Images saved in: {timestamped_save_path}\n")
         f.write("=" * 80 + "\n\n")
         
         # Write per-image metrics
@@ -414,25 +548,28 @@ def test(test_data_path='data/test_example.txt',
             f.write(f"  Crack Pixel Accuracy: {metrics['crack_accuracy']:.4f}\n")
             f.write(f"  Non-Crack Pixel Accuracy: {metrics['non_crack_accuracy']:.4f}\n")
             f.write(f"  TP: {metrics['TP']}, FP: {metrics['FP']}, TN: {metrics['TN']}, FN: {metrics['FN']}\n\n")
-        
-        # Calculate and write average metrics
+          # Calculate and write average metrics
         f.write("\nAverage Metrics:\n")
         f.write("-" * 40 + "\n")
+        
+        # Calculate average IoU only for images with positive pixels
+        valid_iou_scores = [m['iou'] for m in all_metrics if m['has_positive_pixels'] and not np.isnan(m['iou'])]
+        num_images_with_cracks = len(valid_iou_scores)
+        avg_iou = sum(valid_iou_scores) / num_images_with_cracks if num_images_with_cracks > 0 else 0.0
         
         avg_metrics = {
             'accuracy': sum(m['accuracy'] for m in all_metrics) / len(all_metrics),
             'precision': sum(m['precision'] for m in all_metrics) / len(all_metrics),
             'recall': sum(m['recall'] for m in all_metrics) / len(all_metrics),
             'f1_score': sum(m['f1_score'] for m in all_metrics) / len(all_metrics),
-            'iou': sum(m['iou'] for m in all_metrics) / len(all_metrics),
-            # Skip crack/non-crack accuracy as some might be NaN
+            'iou': avg_iou,
         }
         
         f.write(f"Average Accuracy: {avg_metrics['accuracy']:.4f}\n")
         f.write(f"Average Precision: {avg_metrics['precision']:.4f}\n")
         f.write(f"Average Recall: {avg_metrics['recall']:.4f}\n")
         f.write(f"Average F1 Score: {avg_metrics['f1_score']:.4f}\n")
-        f.write(f"Average IoU: {avg_metrics['iou']:.4f}\n")
+        f.write(f"Average IoU: {avg_metrics['iou']:.4f} (calculated from {num_images_with_cracks} images with cracks out of {len(all_metrics)} total images)\n")
         
         # Calculate total confusion matrix values
         total_tp = sum(m['TP'] for m in all_metrics)
@@ -460,8 +597,7 @@ def test(test_data_path='data/test_example.txt',
         f.write(f"  Global Recall: {global_recall:.4f}\n")
         f.write(f"  Global F1 Score: {global_f1:.4f}\n")
         f.write(f"  Global IoU: {global_iou:.4f}\n")
-        
-        # Add benchmark metrics section
+          # Add benchmark metrics section (remove AUC section)
         f.write("\nBoundary Detection Benchmark Metrics:\n")
         f.write("-" * 40 + "\n")
         f.write(f"ODS (Optimal Dataset Scale): {benchmark_metrics['ODS']:.4f} at threshold {benchmark_metrics['ODS_threshold']:.2f}\n")
@@ -470,13 +606,6 @@ def test(test_data_path='data/test_example.txt',
     
     print(f"Evaluation results saved to {eval_file}")
     print(f"Images saved to {timestamped_save_path}")
-    print(f"Average accuracy: {avg_metrics['accuracy']:.4f}")
-    print(f"Average F1-Score: {avg_metrics['f1_score']:.4f}")
-    print(f"Average IoU: {avg_metrics['iou']:.4f}")
-    print(f"Benchmark metrics:")
-    print(f"ODS: {benchmark_metrics['ODS']:.4f}")
-    print(f"OIS: {benchmark_metrics['OIS']:.4f}")
-    print(f"AP: {benchmark_metrics['AP']:.4f}")
 
 
 if __name__ == '__main__':

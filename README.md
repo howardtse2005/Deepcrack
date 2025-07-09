@@ -13,7 +13,8 @@
     ```bash
     conda create -n deepcrack python=3.10
     conda activate deepcrack
-    conda install conda-forge::pytorch conda-forge::visdom conda-forge::opencv conda-forge::tqdm anaconda::numpy
+    conda install conda-forge::pytorch conda-forge::visdom conda-forge::opencv conda-forge::tqdm anaconda::numpy conda-forge::einops
+    pip install segformer-pytorch
     ```
 3.  **Train on your own images**
     Put all your image-ground truth pairs in the data directory. Then, edit the train_example.txt (for training) and val_example.txt (for validation). The first column contains the path to the rgb image and the second column contains the path to ground truth mask.

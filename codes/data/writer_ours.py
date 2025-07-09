@@ -1,15 +1,26 @@
 import os
+import re
+
+def natural_sort_key(text):
+    """
+    Convert a string into a list of string and number chunks for natural sorting.
+    "image10.jpg" -> ["image", 10, ".jpg"]
+    """
+    def atoi(text):
+        return int(text) if text.isdigit() else text
+
+    return [atoi(c) for c in re.split(r'(\d+)', text)]
 
 def create_dataset_file():
     # Paths
-    image_dir = "/home/fyp/DeepCrack/codes/data/Crack/July2025/crops/rgb"
-    mask_dir = "/home/fyp/DeepCrack/codes/data/Crack/July2025/crops/gt"
+    image_dir = "/home/fyp/DeepCrack/codes/data/Crack/July2025/images"
+    mask_dir = "/home/fyp/DeepCrack/codes/data/Crack/July2025/gt"
     output_file = "/home/fyp/DeepCrack/codes/data/test_example.txt"
     
     # Get all image files
     try:
-        # Fixed: Use a tuple to check for multiple extensions
-        image_files = sorted([f for f in os.listdir(image_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG'))])
+        # Use natural sorting to sort by numbers, not characters
+        image_files = sorted([f for f in os.listdir(image_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG'))], key=natural_sort_key)
     except FileNotFoundError:
         print(f"Error: Directory not found: {image_dir}")
         return

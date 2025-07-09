@@ -60,10 +60,12 @@ class Config:
     # checkpointer
     save_format = ''
     save_acc = -1
-    save_pos_acc = -1
-
-    # Model configuration
-    model_type = 'hnet'  # Options: 'deepcrack', 'hnet', 'unet'
+    save_pos_acc = -1    # Model configuration
+    model_type = 'deepcrack'  # Options: 'deepcrack', 'unet', 'attention_unet', 'segformer', 'hnet'
+    
+    # SegFormer-specific configuration
+    segformer_variant = 'b5'  # Options: 'b0', 'b1', 'b2', 'b3', 'b4', 'b5'
+    segformer_pretrained = False  # Whether to use ImageNet pretrained weights
     
     # TensorBoard settings
     tensorboard_dir = 'runs/deepcrack'
@@ -71,19 +73,6 @@ class Config:
 
     # HNet-specific configuration
     group_norm_groups = 8  # Number of groups for GroupNorm layers
-    noise_suppression_weight = 0.6  # Weight for noise suppression mechanism
-    
-    # Crack continuity enhancements
-    directional_filters = True  # Enable directional convolutions to maintain linear structures
-    continuity_weight = 0.7     # Weight for continuity-preserving mechanism
-    
-    # Construction joint filtering
-    filter_construction_joints = True  # Enable filtering of perfectly straight lines
-    straightness_threshold = 0.03      # Variance threshold below which a line is considered "construction joint"
-    joint_min_length_percent = 0.07    # Minimum length as percentage of image dimension
-    joint_max_width_percent = 0.03     # Maximum width as percentage of image dimension
-    joint_min_aspect_ratio = 4.0       # Minimum length/width ratio for construction joints
-    joint_filtering_strength = 0.8     # Strength of suppression (0-1)
     
     # Multi-scale convolution parameters
     ms_dilations = [1, 2, 4]  # Dilation rates for multi-scale convolution

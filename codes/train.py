@@ -4,7 +4,9 @@ from tqdm import tqdm
 from model.deepcrack import DeepCrack
 from model.hnet import HNet
 from model.unet import UNet
-from trainer import DeepCrackTrainer, UNetTrainer
+from model.attention_unet import AttentionUNet
+from model.segformer import SegFormer
+from trainer import DeepCrackTrainer, UNetTrainer, SegFormerTrainer
 from config import Config as cfg
 import numpy as np
 import torch
@@ -76,16 +78,6 @@ def save_config_to_file(model_path=None):
             f.write(f"pos_pixel_weight: {cfg.pos_pixel_weight}\n")
         f.write("\n")
 
-        # Write HNet-specific configuration if applicable
-        if cfg.model_type == 'hnet':
-            f.write("HNET-SPECIFIC CONFIGURATION:\n")
-            f.write("-" * 30 + "\n")
-            f.write(f"group_norm_groups: {cfg.group_norm_groups}\n")
-            f.write(f"noise_suppression_weight: {cfg.noise_suppression_weight}\n")
-            f.write(f"ms_dilations: {cfg.ms_dilations}\n")
-        
-            f.write("\n")
-
         # Write training configuration
         f.write("TRAINING CONFIGURATION:\n")
         f.write("-" * 30 + "\n")
@@ -135,8 +127,8 @@ def main():
     data_augment_op = augCompose(transforms=[[RandomColorJitter, 0.5], [RandomBlur, 0.2]])
 
     ## SELF-ADDED (Specify target size for resizing)
-    train_pipline = dataReadPip(transforms=data_augment_op)
-    test_pipline = dataReadPip(transforms=None)
+    train_pipline = dataReadPip(transforms=data_augment_op, crop=True)
+    test_pipline = dataReadPip(transforms=None, crop=True)
 
     train_dataset = loadedDataset(readIndex(cfg.train_data_path, shuffle=True), preprocess=train_pipline)
 
@@ -159,8 +151,14 @@ def main():
         model = HNet()
         print("Using HNet architecture")
     elif cfg.model_type == 'unet':
-        model = UNet()
+        model = UNet()        
         print("Using UNet architecture")
+    elif cfg.model_type == 'attention_unet':
+        model = AttentionUNet()
+        print("Using Attention UNet architecture")
+    elif cfg.model_type == 'segformer': 
+        model = SegFormer(num_classes=1, phi=cfg.segformer_variant, pretrained=cfg.segformer_pretrained)
+        print(f"Using SegFormer {cfg.segformer_variant} architecture")
     else:
         model = DeepCrack()
         print("Using DeepCrack architecture")
@@ -169,9 +167,12 @@ def main():
     model.to(device)
 
     # Select trainer based on model type
-    if cfg.model_type in ['hnet', 'unet']:
+    if cfg.model_type in ['hnet', 'unet', 'attention_unet']:
         trainer = UNetTrainer(model).to(device)
         print("Using UNetTrainer (single output)")
+    elif cfg.model_type == 'segformer':
+        trainer = SegFormerTrainer(model).to(device)
+        print("Using SegFormerTrainer (single output)")
     else:
         trainer = DeepCrackTrainer(model).to(device)
         print("Using DeepCrackTrainer (multi-output)")
@@ -208,7 +209,7 @@ def main():
                 
                 if idx % cfg.vis_train_loss_every == 0:
                     trainer.vis.log_dict(trainer.log_loss, 'train_loss')
-                    if cfg.model_type in ['hnet', 'unet']:
+                    if cfg.model_type in ['hnet', 'unet', 'attention_unet', 'segformer']:
                         # Single output model
                         trainer.vis.plot_many({
                             'train_total_loss': trainer.log_loss['total_loss'],
@@ -227,7 +228,7 @@ def main():
                         })
 
                 if idx % cfg.vis_train_acc_every == 0:
-                    if cfg.model_type in ['hnet', 'unet']:
+                    if cfg.model_type in ['hnet', 'unet', 'attention_unet', 'segformer']:
                         trainer.acc_op(pred, target)
                     else:
                         trainer.acc_op(pred[0], target)
@@ -239,7 +240,7 @@ def main():
                     })
                     
                 if idx % cfg.vis_train_img_every == 0:
-                    if cfg.model_type in ['hnet', 'unet']:
+                    if cfg.model_type in ['hnet', 'unet', 'attention_unet', 'segformer']:
                         # Single output model
                         trainer.vis.img_many({
                             'train_img': data.cpu(),
@@ -264,7 +265,7 @@ def main():
                     trainer.vis.log('Start Val %d ....' % idx, 'train info') 
                     model.eval()
                     
-                    if cfg.model_type in ['hnet', 'unet']:
+                    if cfg.model_type in ['hnet', 'unet', 'attention_unet', 'segformer']:
                         # Single output model
                         val_loss = {
                             'eval_total_loss': 0,
@@ -296,7 +297,7 @@ def main():
                                 torch.cuda.FloatTensor).to(device)
                             val_pred = trainer.val_op(val_data, val_target)
                             
-                            if cfg.model_type in ['hnet', 'unet']:
+                            if cfg.model_type in ['hnet', 'unet', 'attention_unet', 'segformer']:
                                 trainer.acc_op(val_pred, val_target)
                                 val_loss['eval_total_loss'] += trainer.log_loss['total_loss']
                                 val_loss['eval_output_loss'] += trainer.log_loss['output_loss']
@@ -314,7 +315,7 @@ def main():
                             val_acc['mask_pos_acc'] += trainer.log_acc['mask_pos_acc']
                             val_acc['mask_neg_acc'] += trainer.log_acc['mask_neg_acc']
                         else:
-                            if cfg.model_type in ['hnet', 'unet']:
+                            if cfg.model_type in ['hnet', 'unet', 'attention_unet', 'segformer']:
                                 # Single output model
                                 trainer.vis.img_many({
                                     'eval_img': val_data.cpu(),

@@ -108,10 +108,10 @@ class OutConv(nn.Module):
     def forward(self, x):
         return self.conv(x)
 
-class UNet(nn.Module):
+class AttentionUNet(nn.Module):
     """Original Attention U-Net from 'Attention U-Net: Learning Where to Look for the Pancreas'"""
     def __init__(self, num_classes=1, n_channels=3, bilinear=True):
-        super(UNet, self).__init__()
+        super(AttentionUNet, self).__init__()
         self.n_channels = n_channels
         self.bilinear = bilinear
 
