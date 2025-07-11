@@ -112,7 +112,6 @@ def process_single_pair(image_path, mask_path, save_dir, show_visualization=True
     img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
     if img is None:
         raise ValueError(f"Failed to load image from {image_path}")
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
     mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
     if mask is None:
@@ -208,9 +207,9 @@ def process_single_pair(image_path, mask_path, save_dir, show_visualization=True
     
     for i, (img_crop, mask_crop) in enumerate(crops):
         # Save crop image with sequential numbering: 1.jpg, 2.jpg, 3.jpg, ...
-        crop_img_bgr = cv2.cvtColor(img_crop, cv2.COLOR_RGB2BGR)
+        img_crop
         crop_img_path = os.path.join(crops_img_dir, f"{current_counter}.jpg")
-        cv2.imwrite(crop_img_path, crop_img_bgr)
+        cv2.imwrite(crop_img_path, img_crop)
         
         # Save crop mask with sequential numbering: 1_GT.png, 2_GT.png, 3_GT.png, ...
         crop_mask_path = os.path.join(crops_mask_dir, f"{current_counter}_GT.png")
@@ -273,7 +272,6 @@ def visualize(image_path, mask_path, save_dir=None):
     img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
     if img is None:
         raise ValueError(f"Failed to load image from {image_path}")
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
     mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
     if mask is None:
@@ -311,9 +309,8 @@ def visualize(image_path, mask_path, save_dir=None):
     if save_dir:
         basename = os.path.splitext(os.path.basename(image_path))[0]
         # Save aligned image
-        img_rgb = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)  # Convert back to BGR for OpenCV
         img_save_path = os.path.join(img_save_dir, f"{basename}.jpg")
-        cv2.imwrite(img_save_path, img_rgb)
+        cv2.imwrite(img_save_path, img)
         
         # Save aligned mask
         # If mask is binary (0/255), ensure it stays that way
@@ -404,9 +401,8 @@ def visualize(image_path, mask_path, save_dir=None):
             crop_type = "crack" if has_crack else "no_crack"
             
             # Save crop image
-            crop_img_bgr = cv2.cvtColor(img_crop, cv2.COLOR_RGB2BGR)
             crop_img_path = os.path.join(crops_img_dir, f"{basename}_crop{i:03d}_{crop_type}.jpg")
-            cv2.imwrite(crop_img_path, crop_img_bgr)
+            cv2.imwrite(crop_img_path, img_crop)
             
             # Save crop mask
             crop_mask_path = os.path.join(crops_mask_dir, f"{basename}_crop{i:03d}_{crop_type}_GT.png")

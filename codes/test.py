@@ -365,7 +365,7 @@ def calculate_pr_metrics_at_thresholds(predictions, groundtruths, thresholds):
 def test(test_data_path='data/test_example.txt',
          save_path='deepcrack_results/images',
          eval_path='deepcrack_results/eval',
-         pretrained_model='checkpoints/test_deepcrack_full_1.pth',
+         pretrained_model='checkpoints/unet_july.pth',
          threshold=0.5):
     
     # Create timestamp for folder names
@@ -433,7 +433,7 @@ def test(test_data_path='data/test_example.txt',
         img_path, gt_path = item
         
         # Load images - use color for input, grayscale for ground truth
-        img = cv2.imread(img_path)  # Load as BGR (3 channels)
+        img = cv2.imread(img_path)
         gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
         
         if img is None or gt is None:
@@ -448,16 +448,15 @@ def test(test_data_path='data/test_example.txt',
         img_resized = cv2.resize(img, (new_w, new_h))
         gt_resized = cv2.resize(gt, (new_w, new_h))
         
-        # Convert BGR to RGB and normalize
-        img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
-        img_tensor = torch.from_numpy(img_rgb.transpose(2, 0, 1)).float() / 255.0
+        # normalize
+        img_tensor = torch.from_numpy(img_resized.transpose(2, 0, 1)).float() / 255.0
         gt_tensor = torch.from_numpy(gt_resized).float() / 255.0
         
         print(f"Processing image {idx}: {img_tensor.shape[1]}x{img_tensor.shape[2]} pixels")
         
         # Perform sliding window inference
         with torch.no_grad():
-            pred_tensor = sliding_window_inference(model, img_tensor, window_size=448, overlap=0.2)
+            pred_tensor = sliding_window_inference(model, img_tensor, window_size=448, overlap=0.0)
         
         # Convert to numpy
         pred_np = pred_tensor.cpu().numpy()
@@ -626,7 +625,6 @@ def test(test_data_path='data/test_example.txt',
         f.write("-" * 40 + "\n")
         f.write(f"ODS (Optimal Dataset Scale): {benchmark_metrics['ODS']:.4f} at threshold {benchmark_metrics['ODS_threshold']:.2f}\n")
         f.write(f"OIS (Optimal Image Scale): {benchmark_metrics['OIS']:.4f}\n")
-        f.write(f"AP (Average Precision): {benchmark_metrics['AP']:.4f}\n")
     
     print(f"Evaluation results saved to {eval_file}")
     print(f"Images saved to {timestamped_save_path}")

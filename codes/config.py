@@ -37,7 +37,7 @@ class Config:
     num_crops_with_cracks = 10  # Number of crops that should contain cracks
 
     # training
-    epoch = 500
+    epoch = 100
     pretrained_model = ''  # Path to the pretrained model
     weight_decay = 0.0000
     lr_decay = 0.1
@@ -61,7 +61,7 @@ class Config:
     save_format = ''
     save_acc = -1
     save_pos_acc = -1    # Model configuration
-    model_type = 'deepcrack'  # Options: 'deepcrack', 'unet', 'attention_unet', 'segformer', 'hnet'
+    model_type = 'unet'  # Options: 'deepcrack', 'unet', 'attention_unet', 'segformer', 'hnet'
     
     # SegFormer-specific configuration
     segformer_variant = 'b5'  # Options: 'b0', 'b1', 'b2', 'b3', 'b4', 'b5'
