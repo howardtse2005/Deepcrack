@@ -10,6 +10,6 @@
 /codes/checkpoints/*.pth
 /codes/checkpoints/DeepCrack_CT260_FT1/checkpoints/*
 /codes/data/__pycache__/
-/codes/data/july2025_imgs
-/codes/model/__pycache__
+/codes/data/july2025_imgs/
+/codes/model/__pycache__/
 /codes/runs
