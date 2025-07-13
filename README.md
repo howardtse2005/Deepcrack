@@ -1,4 +1,4 @@
-**NOTE: This repo is not my original work. This is based on deepcrack repo: https://github.com/qinnzou/DeepCrack. This is only intended for personal use of HKU Innovation Wing**
+**This is based on deepcrack repo: https://github.com/qinnzou/DeepCrack. But already so many modifications (especially with HNet development) I am considering to create a new repo but for now just keep this. This is only intended for personal use of HKU Innovation Wing**
 
 ## Getting Started
 1.  **Clone the repository:**
