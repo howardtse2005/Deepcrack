@@ -1,3 +1,7 @@
+"""
+Writer script to create a dataset file with image-mask pairs for the train_example.txt of test_example.txt.
+"""
+
 import os
 import re
 
@@ -13,9 +17,9 @@ def natural_sort_key(text):
 
 def create_dataset_file():
     # Paths
-    image_dir = "/home/fyp/DeepCrack/codes/data/july2025_imgs/img_raw_ts"
-    mask_dir = "/home/fyp/DeepCrack/codes/data/july2025_imgs/masks_raw_ts"
-    output_file = "/home/fyp/DeepCrack/codes/data/test_example.txt"
+    image_dir = "/home/fyp/DeepCrack/data/july2025_imgs/img_raw_ts"
+    mask_dir = "/home/fyp/DeepCrack/data/july2025_imgs/masks_raw_ts"
+    output_file = "/home/fyp/DeepCrack/data/test_example.txt"
     
     # Get all image files
     try:

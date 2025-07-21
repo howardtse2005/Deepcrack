@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from config import Config as cfg
 
 def ConvNxN(in_, out, kernel_size=3, dilation=1):
     """Flexible convolution with configurable kernel size and dilation"""
@@ -109,39 +108,214 @@ class Up(nn.Module):
         # Apply double convolution
         return self.conv(x)
 
-class Fusion(nn.Module):
-    """Learnable weighted concatenation fusion for symmetric dual-stream crack detection
-    Based on U-Net concatenation philosophy with learnable weight control.
+class FeaturePyramidAttention(nn.Module):
+    """Feature Pyramid Attention (FPA) Module from PANet paper
+    Fuses multi-scale features using attention mechanisms
+    """
+    def __init__(self, in_channels_list, out_channels=256):
+        super().__init__()
+        self.in_channels_list = in_channels_list
+        self.out_channels = out_channels
+        
+        # 1x1 convolutions to unify channel dimensions
+        self.lateral_convs = nn.ModuleList()
+        for in_channels in in_channels_list:
+            self.lateral_convs.append(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+            )
+        
+        # Global Average Pooling branch
+        self.gap_branch = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+        
+        # Attention generation
+        self.attention_conv = nn.Sequential(
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+        
+        # Final output convolution
+        self.output_conv = nn.Sequential(
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+        
+    def forward(self, features):
+        """
+        Args:
+            features: List of feature maps at different scales [finest -> coarsest]
+        """
+        # Get target size from finest feature map
+        target_size = features[0].shape[2:]
+        
+        # Apply lateral convolutions and resize to target size
+        lateral_features = []
+        for i, feature in enumerate(features):
+            lateral = self.lateral_convs[i](feature)
+            if lateral.shape[2:] != target_size:
+                lateral = F.interpolate(lateral, size=target_size, mode='bilinear', align_corners=False)
+            lateral_features.append(lateral)
+        
+        # Sum all lateral features
+        fused_feature = sum(lateral_features)
+        
+        # Global context branch
+        gap_feature = self.gap_branch(fused_feature)
+        gap_feature = F.interpolate(gap_feature, size=target_size, mode='bilinear', align_corners=False)
+        
+        # Add global context
+        enhanced_feature = fused_feature + gap_feature
+        
+        # Generate attention weights
+        attention = self.attention_conv(enhanced_feature)
+        
+        # Apply attention to fused feature
+        attended_feature = fused_feature * torch.sigmoid(attention)
+        
+        # Final output
+        output = self.output_conv(attended_feature)
+        
+        return output
+
+class GlobalAttentionUpsample(nn.Module):
+    """Global Attention Upsample (GAU) Module from PANet paper
+    Uses global context to guide feature upsampling with attention
+    """
+    def __init__(self, low_in_channels, high_in_channels, out_channels, upsample_scale=2):
+        super().__init__()
+        self.upsample_scale = upsample_scale
+        
+        # Low-level feature processing
+        self.low_conv = nn.Sequential(
+            nn.Conv2d(low_in_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+        
+        # High-level feature processing
+        self.high_conv = nn.Sequential(
+            nn.Conv2d(high_in_channels, out_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+        
+        # Global pooling for attention generation
+        self.global_pool = nn.AdaptiveAvgPool2d(1)
+        
+        # Attention generation network
+        self.attention_fc = nn.Sequential(
+            nn.Linear(out_channels, out_channels // 4),
+            nn.ReLU(inplace=True),
+            nn.Linear(out_channels // 4, out_channels),
+            nn.Sigmoid()
+        )
+        
+        # Spatial attention
+        self.spatial_attention = nn.Sequential(
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, 1, kernel_size=1, bias=False),
+            nn.Sigmoid()
+        )
+        
+        # Final fusion
+        self.fusion_conv = nn.Sequential(
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+        
+    def forward(self, low_feature, high_feature):
+        """
+        Args:
+            low_feature: Lower-level (higher resolution) feature
+            high_feature: Higher-level (lower resolution) feature with semantic info
+        """
+        # Process low-level features
+        low_feat = self.low_conv(low_feature)
+        
+        # Process and upsample high-level features
+        high_feat = self.high_conv(high_feature)
+        if self.upsample_scale > 1:
+            high_feat = F.interpolate(high_feat, scale_factor=self.upsample_scale, mode='bilinear', align_corners=False)
+        
+        # Ensure spatial dimensions match
+        if high_feat.shape[2:] != low_feat.shape[2:]:
+            high_feat = F.interpolate(high_feat, size=low_feat.shape[2:], mode='bilinear', align_corners=False)
+        
+        # Generate channel attention from high-level features
+        B, C, H, W = high_feat.shape
+        gap = self.global_pool(high_feat).view(B, C)
+        channel_attention = self.attention_fc(gap).view(B, C, 1, 1)
+        
+        # Apply channel attention to low-level features
+        low_feat_attended = low_feat * channel_attention
+        
+        # Generate spatial attention
+        spatial_att = self.spatial_attention(high_feat)
+        
+        # Apply spatial attention
+        low_feat_final = low_feat_attended * spatial_att
+        
+        # Fuse features
+        fused = low_feat_final + high_feat
+        output = self.fusion_conv(fused)
+        
+        return output
+
+class PANetFusion(nn.Module):
+    """PANet-style fusion for dual-stream architecture
+    Implements Feature Pyramid Attention for multi-scale fusion
     """
     def __init__(self):
         super().__init__()
         
-        # Learnable weights for fine/coarse balance
-        self.fine_weight = nn.Parameter(torch.tensor(0.5))
-        self.coarse_weight = nn.Parameter(torch.tensor(0.5))
+        # Feature Pyramid Attention for coarse and fine features
+        self.fpa = FeaturePyramidAttention(
+            in_channels_list=[1024, 1024],  # fine_features, coarse_features
+            out_channels=1024
+        )
         
-        # U-Net style fusion processing (like decoder blocks)
-        self.fusion_conv = nn.Sequential(
-            ConvNxN(2048, 1024, kernel_size=3),  # 2048 → 1024 channels
-            nn.BatchNorm2d(1024),
-            nn.ReLU(),
-            ConvNxN(1024, 1024, kernel_size=3),  # Standard double conv
-            nn.BatchNorm2d(1024),
-            nn.ReLU()
+        # Global Attention Upsample for final fusion
+        self.gau = GlobalAttentionUpsample(
+            low_in_channels=1024,    # fine features (detailed)
+            high_in_channels=1024,   # coarse features (semantic)
+            out_channels=1024,
+            upsample_scale=1  # Both features are same resolution after interpolation
         )
         
     def forward(self, fine_features, coarse_features):
-        weighted_fine = self.fine_weight * fine_features
-        weighted_coarse = self.coarse_weight * coarse_features
-
-        concatenated = torch.cat([weighted_fine, weighted_coarse], dim=1)  # [B, 2048, H, W]
- 
-        output = self.fusion_conv(concatenated)
+        """
+        Args:
+            fine_features: [B, 1024, H, W] - Fine-scale features with details
+            coarse_features: [B, 1024, H, W] - Coarse-scale features with context (upsampled)
+        """
+        # Apply Feature Pyramid Attention
+        # Treat fine as lower-level (more detailed) and coarse as higher-level (more semantic)
+        pyramid_features = [fine_features, coarse_features]
+        fpa_output = self.fpa(pyramid_features)
         
-        return output
+        # Apply Global Attention Upsample
+        # Use coarse features to generate attention for fine features
+        gau_output = self.gau(fine_features, coarse_features)
+        
+        # Combine FPA and GAU outputs
+        final_output = (fpa_output + gau_output) / 2
+        
+        return final_output
 
 class HNet(nn.Module):
-    """Multi-Scale Spatial HNet: Fine-scale + Coarse-scale streams for context-aware crack detection"""
+    """Multi-Scale Spatial HNet with PANet fusion"""
     def __init__(self, num_classes=1):
         super().__init__()
         
@@ -188,8 +362,8 @@ class HNet(nn.Module):
             nn.ReLU()
         )
         
-        # Multi-scale fusion at bottleneck (adaptive based on gap detection)
-        self.fusion_bottleneck = Fusion()
+        # Multi-scale fusion at bottleneck (PANet approach)
+        self.fusion_bottleneck = PANetFusion()
         
         # Fine-scale decoder (preserves crack details)
         self.fine_dec1 = Up(1024, 512)
