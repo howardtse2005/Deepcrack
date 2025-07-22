@@ -18,12 +18,12 @@ class Augmentation:
         self.use_raw = use_raw
 
 class PreprocessPipeline:
-    def __init__(self, augmentations: list[Augmentation]=[]):
+    def __init__(self, augmentations:list[Augmentation]=[]):
         self.augmentations = augmentations
         
 
     def __call__(self, imgs:list[np.ndarray], masks:list[np.ndarray]):        
-        if self.augmentations!= []:
+        if self.augmentations != []:
             imgs_out, masks_out = [], []
             for aug in self.augmentations:
                 if aug.use_raw:
@@ -103,13 +103,44 @@ class Crop(Augmentation):
         return img_cropped, mask_cropped
         
         
+class RandomJitter(Augmentation):
+    """
+        Randomly jitters the input images and masks.
+        Args:
+            jitter_strength (float): Strength of the jittering effect.
+            n_copy (int): Number of copies to generate for each input image.
+            use_raw (bool): If True, the output from the augmentation module will be generated based on raw images.
+            prop_apply (float): Probability that the jittering will be applied to each copy.
+    """
+    def __init__(self, jitter_strength:float=0.2, n_copy:int=1, use_raw:bool=False, prop_apply:float=0.5):
+        super().__init__('RandomJitter', n_copy=n_copy, use_raw=use_raw)
+        self.jitter_strength = jitter_strength
+        self.prop_apply = prop_apply
+
+    def __call__(self, imgs:list[np.ndarray], masks:list[np.ndarray]):
+        imgs_out, masks_out = [], []
+        for i in range(len(imgs)):
+            for _ in range(self.n_copy):
+                if random.random() < self.prop_apply:
+                    # Apply jittering
+                    jittered_img = imgs[i] + np.random.uniform(-self.jitter_strength * 255 , self.jitter_strength * 255, imgs[i].shape)
+                    jittered_img = np.clip(jittered_img, 0, 255)
+                    jittered_img = jittered_img.astype(np.uint8)
+                else:
+                    # No jittering
+                    jittered_img = imgs[i]
+                
+                imgs_out.append(jittered_img)
+                masks_out.append(masks[i])
+        return imgs_out, masks_out
+    
 if __name__ == "__main__":
     # Example usage
     img = cv2.imread('img_debug/3.jpg')
     mask = cv2.imread('mask_debug/3_GT.png', cv2.IMREAD_GRAYSCALE)
     
     pipeline = PreprocessPipeline([
-        Crop(range_crop_len=(200,1000), n_copy=10),
+        RandomJitter(use_raw=True, jitter_strength=0.1, n_copy=5),
     ])
     
     imgs_out, masks_out = pipeline([img], [mask])
