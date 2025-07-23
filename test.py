@@ -1,4 +1,4 @@
-from data.dataset import readIndex, dataReadPip, loadedDataset
+from data.dataset import CrackDataset
 from model.deepcrack import DeepCrack
 from model.hnet import HNet
 from model.unet import UNet 
@@ -16,6 +16,9 @@ import torch.nn.functional as F
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
+test_img_path = 'data/july2025_imgs/img_raw_ts'
+test_mask_path = 'data/july2025_imgs/masks_raw_ts'
+checkpoint_path = 'checkpoints/unet_july.pth'
 
 def sliding_window_inference(model, image, window_size=448, overlap=0.2):
     """
@@ -23,7 +26,7 @@ def sliding_window_inference(model, image, window_size=448, overlap=0.2):
     
     Args:
         model: Trained model
-        image: Input image tensor (C, H, W)
+        image: Input image tensor (C, H, W) or numpy array (H, W, C)
         window_size: Size of sliding window (default 448)
         overlap: Overlap ratio between windows (default 0.2)
     
@@ -31,7 +34,24 @@ def sliding_window_inference(model, image, window_size=448, overlap=0.2):
         prediction: Full resolution prediction tensor
     """
     device = next(model.parameters()).device
+    
+    # Handle both numpy arrays and tensors
+    if isinstance(image, np.ndarray):
+        # Convert numpy array to tensor
+        if len(image.shape) == 3 and image.shape[2] == 3:  # H, W, C format
+            image = torch.from_numpy(image.transpose(2, 0, 1)).float() / 255.0
+        else:
+            raise ValueError("Input image should be in H, W, C format for numpy arrays")
+    
+    # Resize to multiples of 32 for model compatibility
     C, H, W = image.shape
+    new_h = (H // 32) * 32
+    new_w = (W // 32) * 32
+    
+    if H != new_h or W != new_w:
+        image = F.interpolate(image.unsqueeze(0), size=(new_h, new_w), mode='bilinear', align_corners=False).squeeze(0)
+        H, W = new_h, new_w
+
     stride = int(window_size * (1 - overlap))
     
     # Ensure complete coverage by calculating windows differently
@@ -107,7 +127,6 @@ def sliding_window_inference(model, image, window_size=448, overlap=0.2):
     
     return prediction.squeeze(0)
 
-
 def draw_text_with_outline(img, text, position, font, font_scale, text_color, outline_color, thickness=1, outline_thickness=3):
     """
     Draw text with an outline to make it more visible on various backgrounds
@@ -118,93 +137,186 @@ def draw_text_with_outline(img, text, position, font, font_scale, text_color, ou
     cv2.putText(img, text, position, font, font_scale, text_color, thickness, cv2.LINE_AA)
 
 
-def calculate_metrics(pred, gt, threshold=0.5):
+def create_visualization(original_img, ground_truth, prediction, max_display_size=1200):
     """
-    Calculate accuracy metrics between prediction and ground truth
-    
-    Args:
-        pred: Prediction tensor or numpy array (values between 0-1)
-        gt: Ground truth tensor or numpy array (values between 0-1)
-        threshold: Threshold to binarize prediction
-        
-    Returns:
-        dict: Dictionary containing various metrics
+    Create a 3-panel visualization showing original image, ground truth, and prediction
     """
-    # Convert tensors to numpy arrays if needed
-    if isinstance(pred, torch.Tensor):
-        pred = pred.cpu().numpy()
+    # Convert prediction and ground truth to proper format
+    if len(ground_truth.shape) == 2:
+        display_gt = (ground_truth * 255).astype(np.uint8)
+    else:
+        display_gt = ground_truth.astype(np.uint8)
         
-    if isinstance(gt, torch.Tensor):
-        gt = gt.cpu().numpy()
-    
-    # Binarize prediction
-    pred_binary = (pred > threshold).astype(np.uint8)
-    gt_binary = (gt > 0.5).astype(np.uint8)
-    
-    # Calculate metrics
-    metrics = {}
-    
-    # Total pixel accuracy
-    total_pixels = pred_binary.size
-    correct_pixels = np.sum(pred_binary == gt_binary)
-    metrics['accuracy'] = correct_pixels / total_pixels
-    
-    # True positives, false positives, true negatives, false negatives
-    true_positive = np.sum((pred_binary == 1) & (gt_binary == 1))
-    true_negative = np.sum((pred_binary == 0) & (gt_binary == 0))
-    false_positive = np.sum((pred_binary == 1) & (gt_binary == 0))
-    false_negative = np.sum((pred_binary == 0) & (gt_binary == 1))
-    
-    metrics['TP'] = int(true_positive)
-    metrics['TN'] = int(true_negative)
-    metrics['FP'] = int(false_positive)
-    metrics['FN'] = int(false_negative)
-    
-    # Calculate precision, recall, F1 score
-    if true_positive + false_positive > 0:
-        metrics['precision'] = true_positive / (true_positive + false_positive)
+    if len(prediction.shape) == 2:
+        display_pred = (prediction * 255).astype(np.uint8)
     else:
-        metrics['precision'] = 0.0
+        display_pred = prediction.astype(np.uint8)
+    
+    # Resize for display if too large
+    h, w = display_pred.shape
+    if max(h, w) > max_display_size:
+        scale = max_display_size / max(h, w)
+        new_h, new_w = int(h * scale), int(w * scale)
         
-    if true_positive + false_negative > 0:
-        metrics['recall'] = true_positive / (true_positive + false_negative)
+        display_img = cv2.resize(original_img, (new_w, new_h))
+        display_pred = cv2.resize(display_pred, (new_w, new_h))
+        display_gt = cv2.resize(display_gt, (new_w, new_h))
     else:
-        metrics['recall'] = 0.0
-        
-    if metrics['precision'] + metrics['recall'] > 0:
-        metrics['f1_score'] = 2 * (metrics['precision'] * metrics['recall']) / (metrics['precision'] + metrics['recall'])
-    else:
-        metrics['f1_score'] = 0.0
+        # Resize original image to match prediction size
+        display_img = cv2.resize(original_img, (w, h))
     
-    # IoU (Intersection over Union) for positive class
-    has_positive_pixels = true_positive + false_negative > 0
+    h_disp, w_disp = display_pred.shape
+    border_thickness = 5
     
-    if has_positive_pixels:
-        metrics['iou'] = true_positive / (true_positive + false_positive + false_negative)
-        metrics['has_positive_pixels'] = True  # Flag to indicate valid IoU
-    else:
-        metrics['iou'] = float('nan')  # Skip from IoU averaging if no positive pixels
-        metrics['has_positive_pixels'] = False
+    # Create 3-panel display with white borders
+    total_height = h_disp * 3 + border_thickness * 2
+    display_combined = np.ones((total_height, w_disp, 3), dtype=np.uint8) * 255
     
-    # Class-specific accuracy
-    positive_pixels = true_positive + false_negative
-    if positive_pixels > 0:
-        metrics['crack_accuracy'] = true_positive / positive_pixels
-    else:
-        metrics['crack_accuracy'] = float('nan')
-        
-    negative_pixels = true_negative + false_positive
-    if negative_pixels > 0:
-        metrics['non_crack_accuracy'] = true_negative / negative_pixels
-    else:
-        metrics['non_crack_accuracy'] = float('nan')
+    # Original image (top)
+    display_combined[:h_disp, :, :] = display_img
     
-    return metrics
+    # Ground truth (middle)
+    gt_start = h_disp + border_thickness
+    gt_end = gt_start + h_disp
+    display_combined[gt_start:gt_end, :, :] = np.stack([display_gt] * 3, axis=2)
+    
+    # Prediction (bottom)
+    pred_start = gt_end + border_thickness
+    pred_end = pred_start + h_disp
+    display_combined[pred_start:pred_end, :, :] = np.stack([display_pred] * 3, axis=2)
+    
+    # Add labels
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 1.5
+    text_color = (255, 255, 255)
+    outline_color = (0, 0, 0)
+    thickness = 6
+    
+    draw_text_with_outline(display_combined, "Original Image", (10, 60), 
+                          font, font_scale, text_color, outline_color, thickness)
+    draw_text_with_outline(display_combined, "Ground Truth", (10, gt_start + 60), 
+                          font, font_scale, text_color, outline_color, thickness)
+    draw_text_with_outline(display_combined, "Prediction", (10, pred_start + 60), 
+                          font, font_scale, text_color, outline_color, thickness)
+    
+    return display_combined
 
+def calculate_metrics(predictions, groundtruths, threshold=0.5):
+    """
+    Calculate comprehensive metrics for all images in the dataset
+    """
+    if not predictions or not groundtruths:
+        print("Warning: No prediction or ground truth data for metric calculation")
+        return {}
+    
+    # Store per-image metrics
+    per_image_metrics = []
+    
+    # Global counters for overall metrics
+    total_tp = total_fp = total_tn = total_fn = 0
+    
+    # Calculate metrics for each image
+    for idx, (pred, gt) in enumerate(zip(predictions, groundtruths)):
+        # Convert tensors to numpy arrays if needed
+        if isinstance(pred, torch.Tensor):
+            pred = pred.cpu().numpy()
+        if isinstance(gt, torch.Tensor):
+            gt = gt.cpu().numpy()
+        
+        # Binarize prediction
+        pred_binary = (pred > threshold).astype(np.uint8)
+        gt_binary = (gt > 0.5).astype(np.uint8)
+        
+        # Calculate confusion matrix values
+        tp = np.sum((pred_binary == 1) & (gt_binary == 1))
+        tn = np.sum((pred_binary == 0) & (gt_binary == 0))
+        fp = np.sum((pred_binary == 1) & (gt_binary == 0))
+        fn = np.sum((pred_binary == 0) & (gt_binary == 1))
+        
+        # Accumulate for global metrics
+        total_tp += tp
+        total_fp += fp
+        total_tn += tn
+        total_fn += fn
+        
+        # Calculate per-image metrics
+        total_pixels = pred_binary.size
+        correct_pixels = tp + tn
+        accuracy = correct_pixels / total_pixels
+        
+        # Precision, recall, F1
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 1.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 1.0
+        f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 1.0
+        
+        # IoU
+        iou = tp / (tp + fp + fn) if (tp + fp + fn) > 0 else 1.0
+        
+        # Class-specific accuracy
+        crack_accuracy = tp / (tp + fn) if (tp + fn) > 0 else float('nan')
+        non_crack_accuracy = tn / (tn + fp) if (tn + fp) > 0 else float('nan')
+        
+        # Store per-image metrics
+        image_metrics = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1_score': f1_score,
+            'iou': iou,
+            'crack_accuracy': crack_accuracy,
+            'non_crack_accuracy': non_crack_accuracy,
+            'TP': int(tp),
+            'TN': int(tn),
+            'FP': int(fp),
+            'FN': int(fn)
+        }
+        per_image_metrics.append(image_metrics)
+    
+    # Calculate average metrics
+    num_images = len(per_image_metrics)
+    avg_metrics = {
+        'accuracy': sum(m['accuracy'] for m in per_image_metrics) / num_images,
+        'precision': sum(m['precision'] for m in per_image_metrics) / num_images,
+        'recall': sum(m['recall'] for m in per_image_metrics) / num_images,
+        'f1_score': sum(m['f1_score'] for m in per_image_metrics) / num_images,
+        'iou': sum(m['iou'] for m in per_image_metrics) / num_images,
+    }
+    
+    # Calculate global metrics from total pixel counts
+    total_pixels = total_tp + total_fp + total_tn + total_fn
+    global_metrics = {
+        'accuracy': (total_tp + total_tn) / total_pixels,
+        'precision': total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0,
+        'recall': total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0,
+        'f1_score': 0,
+        'iou': total_tp / (total_tp + total_fp + total_fn) if (total_tp + total_fp + total_fn) > 0 else 0
+    }
+    
+    # Calculate global F1
+    if global_metrics['precision'] + global_metrics['recall'] > 0:
+        global_metrics['f1_score'] = 2 * (global_metrics['precision'] * global_metrics['recall']) / (global_metrics['precision'] + global_metrics['recall'])
+    
+    # Calculate benchmark metrics
+    thresholds = np.linspace(0.01, 0.99, 99)
+    benchmark_metrics = calculate_pr_metrics_at_thresholds(predictions, groundtruths, thresholds)
+    
+    return {
+        'per_image_metrics': per_image_metrics,
+        'average_metrics': avg_metrics,
+        'global_metrics': global_metrics,
+        'total_confusion_matrix': {
+            'TP': int(total_tp),
+            'FP': int(total_fp),
+            'TN': int(total_tn),
+            'FN': int(total_fn)
+        },
+        'benchmark_metrics': benchmark_metrics,
+        'total_images': num_images
+    }
 
 def calculate_pr_metrics_at_thresholds(predictions, groundtruths, thresholds):
     """
-    Calculate precision, recall, and F-measure for multiple thresholds
+    Calculate ODS and OIS benchmark metrics for multiple thresholds
     
     Args:
         predictions: List of prediction arrays (values between 0-1)
@@ -212,24 +324,18 @@ def calculate_pr_metrics_at_thresholds(predictions, groundtruths, thresholds):
         thresholds: List of thresholds to evaluate
         
     Returns:
-        tuple: Arrays of precision, recall, and F-measure at each threshold
+        dict: Dictionary containing ODS and OIS metrics
     """
     # Check if we have data to process
     if not predictions or not groundtruths:
         print("Warning: No prediction or ground truth data for benchmark calculation")
         return {
-            'precisions': np.zeros(len(thresholds)),
-            'recalls': np.zeros(len(thresholds)),
-            'f_measures': np.zeros(len(thresholds)),
             'ODS': 0.0,
-            'ODS_threshold': thresholds[0],
-            'OIS': 0.0,
-            'AP': 0.0
+            'ODS_threshold': thresholds[0] if thresholds else 0.5,
+            'OIS': 0.0
         }
         
     num_thresholds = len(thresholds)
-    precisions = np.zeros(num_thresholds)
-    recalls = np.zeros(num_thresholds)
     f_measures = np.zeros(num_thresholds)
     
     # For ODS: aggregate TP, FP, FN across all images
@@ -242,10 +348,6 @@ def calculate_pr_metrics_at_thresholds(predictions, groundtruths, thresholds):
     
     # For each image
     for pred, gt in zip(predictions, groundtruths):
-        # Calculate TP, FP, FN at each threshold for this image
-        image_tp = np.zeros(num_thresholds)
-        image_fp = np.zeros(num_thresholds)
-        image_fn = np.zeros(num_thresholds)
         image_f_measures = np.zeros(num_thresholds)
         
         for i, threshold in enumerate(thresholds):
@@ -263,16 +365,9 @@ def calculate_pr_metrics_at_thresholds(predictions, groundtruths, thresholds):
             total_fp[i] += fp
             total_fn[i] += fn
             
-            # Calculate for OIS
-            if tp + fp > 0:
-                image_precision = tp / (tp + fp)
-            else:
-                image_precision = 0
-                
-            if tp + fn > 0:
-                image_recall = tp / (tp + fn)
-            else:
-                image_recall = 0
+            # Calculate F-measure for OIS
+            image_precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            image_recall = tp / (tp + fn) if (tp + fn) > 0 else 0
                 
             if image_precision + image_recall > 0:
                 image_f = 2 * (image_precision * image_recall) / (image_precision + image_recall)
@@ -280,115 +375,126 @@ def calculate_pr_metrics_at_thresholds(predictions, groundtruths, thresholds):
                 image_f = 0
                 
             image_f_measures[i] = image_f
-            
-            image_tp[i] = tp
-            image_fp[i] = fp
-            image_fn[i] = fn
         
         # Find best F-measure for this image (for OIS)
         best_f = np.max(image_f_measures)
         image_best_f_measures.append(best_f)
-    # Calculate ODS
+    
+    # Calculate ODS F-measures
     for i in range(num_thresholds):
-        if total_tp[i] + total_fp[i] > 0:
-            precisions[i] = total_tp[i] / (total_tp[i] + total_fp[i])
-        else:
-            precisions[i] = 0
-            
-        if total_tp[i] + total_fn[i] > 0:
-            recalls[i] = total_tp[i] / (total_tp[i] + total_fn[i])
-        else:
-            recalls[i] = 0
-            
-        if precisions[i] + recalls[i] > 0:
-            f_measures[i] = 2 * (precisions[i] * recalls[i]) / (precisions[i] + recalls[i])
+        precision = total_tp[i] / (total_tp[i] + total_fp[i]) if (total_tp[i] + total_fp[i]) > 0 else 0
+        recall = total_tp[i] / (total_tp[i] + total_fn[i]) if (total_tp[i] + total_fn[i]) > 0 else 0
+        
+        if precision + recall > 0:
+            f_measures[i] = 2 * (precision * recall) / (precision + recall)
         else:
             f_measures[i] = 0
     
-    # Calculate OIS
+    # Calculate OIS (average of best F-measures per image)
     ois = np.mean(image_best_f_measures)
     
-    # Calculate AP - Fixed implementation
-    # Sort by increasing recall for proper AP calculation
-    sorted_indices = np.argsort(recalls)
-    sorted_recalls = recalls[sorted_indices]
-    sorted_precisions = precisions[sorted_indices]
-    
-    # Remove duplicate recall values and interpolate precision
-    unique_recalls = []
-    interpolated_precisions = []
-    
-    for i in range(len(sorted_recalls)):
-        if i == 0 or sorted_recalls[i] != sorted_recalls[i-1]:
-            unique_recalls.append(sorted_recalls[i])
-            # For this recall level, find the maximum precision at this recall or higher
-            max_precision = 0
-            for j in range(i, len(sorted_recalls)):
-                if sorted_recalls[j] >= sorted_recalls[i]:
-                    max_precision = max(max_precision, sorted_precisions[j])
-            interpolated_precisions.append(max_precision)
-    
-    unique_recalls = np.array(unique_recalls)
-    interpolated_precisions = np.array(interpolated_precisions)
-    
-    # Calculate AP using trapezoid rule on interpolated curve
-    ap = 0
-    for i in range(1, len(unique_recalls)):
-        recall_diff = unique_recalls[i] - unique_recalls[i-1]
-        avg_precision = (interpolated_precisions[i] + interpolated_precisions[i-1]) / 2
-        ap += recall_diff * avg_precision
-    
-    # Alternative: Use standard AP calculation method
-    # Start from recall=0 with precision=1 (if we have perfect precision at low recall)
-    if len(unique_recalls) > 0 and unique_recalls[0] > 0:
-        # Add point at (0, max_precision) if it doesn't exist
-        ap += unique_recalls[0] * interpolated_precisions[0]
-    
-    # Get ODS (optimal dataset scale)
+    # Get ODS (optimal dataset scale - best F-measure across all thresholds)
     ods_idx = np.argmax(f_measures)
     ods_threshold = thresholds[ods_idx]
     ods = f_measures[ods_idx]
     
     return {
-        'precisions': precisions,
-        'recalls': recalls,
-        'f_measures': f_measures,
         'ODS': ods,
         'ODS_threshold': ods_threshold,
-        'OIS': ois,
-        'AP': ap,
-        'debug_unique_recalls': unique_recalls,
-        'debug_interpolated_precisions': interpolated_precisions
+        'OIS': ois
     }
 
+
+def write_evaluation_results(eval_file, metrics_results, timestamp, pretrained_model, timestamped_save_path):
+    """
+    Write comprehensive evaluation results to a text file
+    """
+    with open(eval_file, 'w') as f:
+        # Header
+        f.write("=" * 80 + "\n")
+        f.write(f"DeepCrack Full-Resolution Evaluation Results - {timestamp}\n")
+        f.write(f"Model: {pretrained_model}\n")
+        f.write(f"Images saved in: {timestamped_save_path}\n")
+        f.write("=" * 80 + "\n\n")
+        
+        # Per-image metrics
+        f.write("Per-Image Metrics:\n")
+        f.write("-" * 40 + "\n")
+        
+        for idx, metrics in enumerate(metrics_results['per_image_metrics']):
+            f.write(f"Image #{idx}:\n")
+            f.write(f"  Accuracy: {metrics['accuracy']:.4f}\n")
+            f.write(f"  Precision: {metrics['precision']:.4f}\n")
+            f.write(f"  Recall: {metrics['recall']:.4f}\n")
+            f.write(f"  F1 Score: {metrics['f1_score']:.4f}\n")
+            f.write(f"  IoU: {metrics['iou']:.4f}\n")
+            f.write(f"  Crack Pixel Accuracy: {metrics['crack_accuracy']:.4f}\n")
+            f.write(f"  Non-Crack Pixel Accuracy: {metrics['non_crack_accuracy']:.4f}\n")
+            f.write(f"  TP: {metrics['TP']}, FP: {metrics['FP']}, TN: {metrics['TN']}, FN: {metrics['FN']}\n\n")
+        
+        # Average metrics
+        avg_metrics = metrics_results['average_metrics']
+        f.write("Average Metrics:\n")
+        f.write("-" * 40 + "\n")
+        f.write(f"Average Accuracy: {avg_metrics['accuracy']:.4f}\n")
+        f.write(f"Average Precision: {avg_metrics['precision']:.4f}\n")
+        f.write(f"Average Recall: {avg_metrics['recall']:.4f}\n")
+        f.write(f"Average F1 Score: {avg_metrics['f1_score']:.4f}\n")
+        f.write(f"Average IoU: {avg_metrics['iou']:.4f} (calculated from all {metrics_results['total_images']} images)\n")
+        
+        # Total confusion matrix
+        cm = metrics_results['total_confusion_matrix']
+        f.write(f"\nTotal Confusion Matrix:\n")
+        f.write(f"  True Positives: {cm['TP']}\n")
+        f.write(f"  False Positives: {cm['FP']}\n")
+        f.write(f"  True Negatives: {cm['TN']}\n")
+        f.write(f"  False Negatives: {cm['FN']}\n")
+        
+        # Global metrics
+        global_metrics = metrics_results['global_metrics']
+        f.write(f"\nGlobal Metrics (calculated from total pixel counts):\n")
+        f.write(f"  Global Accuracy: {global_metrics['accuracy']:.4f}\n")
+        f.write(f"  Global Precision: {global_metrics['precision']:.4f}\n")
+        f.write(f"  Global Recall: {global_metrics['recall']:.4f}\n")
+        f.write(f"  Global F1 Score: {global_metrics['f1_score']:.4f}\n")
+        f.write(f"  Global IoU: {global_metrics['iou']:.4f}\n")
+        
+        # Benchmark metrics
+        benchmark = metrics_results['benchmark_metrics']
+        f.write("\nBoundary Detection Benchmark Metrics:\n")
+        f.write("-" * 40 + "\n")
+        f.write(f"ODS (Optimal Dataset Scale): {benchmark['ODS']:.4f} at threshold {benchmark['ODS_threshold']:.2f}\n")
+        f.write(f"OIS (Optimal Image Scale): {benchmark['OIS']:.4f}\n")
 
 def test(test_data_path='data/test_example.txt',
          save_path='results/images',
          eval_path='results/eval',
-         pretrained_model='checkpoints/hnet5_july.pth',
+         pretrained_model=checkpoint_path,
+         test_img_path = test_img_path,
+         test_mask_path = test_mask_path,
          threshold=0.5):
     
     # Create timestamp for folder names
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # Create output directories if they don't exist
+    # Create output directories
     os.makedirs(eval_path, exist_ok=True)
-    
-    # Create a timestamped subfolder inside save_path
     result_folder_name = f"evaluation_{timestamp}"
     timestamped_save_path = os.path.join(save_path, result_folder_name)
     os.makedirs(timestamped_save_path, exist_ok=True)
     
     print(f"Results will be saved to: {timestamped_save_path}")
     
-    # Read test data directly without dataset preprocessing
-    test_list = readIndex(test_data_path)
+    # Load dataset
+    test_dataset = CrackDataset(
+        dataset_img_path=test_img_path,
+        dataset_mask_path=test_mask_path,
+    )
 
-    # -------------------- build trainer --------------------- #
+    # Build model and trainer
     device = torch.device("cuda")
     num_gpu = torch.cuda.device_count()
     
-    # Select model based on config
     if cfg.model_type == 'hnet':
         model = HNet()
         print("Using HNet architecture")
@@ -408,7 +514,6 @@ def test(test_data_path='data/test_example.txt',
     model = torch.nn.DataParallel(model, device_ids=range(num_gpu))
     model.to(device)
     
-    # Select trainer based on config
     if cfg.model_type in ['hnet', 'unet', 'attention_unet', 'segformer']:
         trainer = UNetTrainer(model).to(device)
         print("Using UNetTrainer (single output)")
@@ -419,212 +524,51 @@ def test(test_data_path='data/test_example.txt',
     model.load_state_dict(trainer.saver.load(pretrained_model, multi_gpu=True))
     model.eval()
     
-    # Store metrics for all images
-    all_metrics = []
+    # Store predictions and ground truths
     all_predictions = []
     all_groundtruths = []
     
-    # Create evaluation file path with matching timestamp
-    eval_file = os.path.join(eval_path, f"{result_folder_name}.txt")
-    
     print("Processing full-resolution images with sliding window inference...")
     
-    for idx, item in enumerate(tqdm(test_list)):
-        img_path, gt_path = item
+    # Process each image
+    for idx in tqdm(range(len(test_dataset))):
+        # Get image and mask from dataset
+        img_tensor, gt_tensor = test_dataset[idx]
         
-        # Load images - use color for input, grayscale for ground truth
-        img = cv2.imread(img_path)
-        gt = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
+        # Convert tensors back to numpy arrays for processing
+        # img_tensor is (C, H, W), convert to (H, W, C) for cv2
+        img = img_tensor.permute(1, 2, 0).numpy() * 255.0
+        img = img.astype(np.uint8)
         
-        if img is None or gt is None:
-            print(f"Failed to load image pair: {img_path}, {gt_path}")
-            continue
+        # gt_tensor is (H, W)
+        gt = gt_tensor.numpy()
         
-        # Resize images to be multiples of 32 for model compatibility
-        h, w = img.shape[:2]
-        new_h = (h // 32) * 32
-        new_w = (w // 32) * 32
-        
-        img_resized = cv2.resize(img, (new_w, new_h))
-        gt_resized = cv2.resize(gt, (new_w, new_h))
-        
-        # normalize
-        img_tensor = torch.from_numpy(img_resized.transpose(2, 0, 1)).float() / 255.0
-        gt_tensor = torch.from_numpy(gt_resized).float() / 255.0
-        
-        print(f"Processing image {idx}: {img_tensor.shape[1]}x{img_tensor.shape[2]} pixels")
-        
-        # Perform sliding window inference
+        # Perform inference (resizing handled inside sliding_window_inference)
         with torch.no_grad():
-            pred_tensor = sliding_window_inference(model, img_tensor, window_size=448, overlap=0.0)
+            pred_tensor = sliding_window_inference(model, img, window_size=448, overlap=0.0)
         
-        # Convert to numpy
+        # Resize ground truth to match prediction size
+        pred_h, pred_w = pred_tensor.shape
+        gt_resized = cv2.resize(gt, (pred_w, pred_h))
+        gt_np = gt_resized.astype(np.float32)
+        
+        # Store results
         pred_np = pred_tensor.cpu().numpy()
-        gt_np = gt_tensor.cpu().numpy()
-        
-        # Store for benchmark calculation
         all_predictions.append(pred_np)
         all_groundtruths.append(gt_np)
         
-        # Calculate metrics
-        metrics = calculate_metrics(pred_np, gt_np, threshold=threshold)
-        all_metrics.append(metrics)
-        
-        # Create visualization (downsample for display if too large)
-        max_display_size = 1200
-        h, w = pred_np.shape
-        
-        if max(h, w) > max_display_size:
-            scale = max_display_size / max(h, w)
-            new_h, new_w = int(h * scale), int(w * scale)
-            
-            # Use original color image for display
-            display_img = cv2.resize(img, (new_w, new_h))
-            display_pred = cv2.resize((pred_np * 255).astype(np.uint8), (new_w, new_h))
-            display_gt = cv2.resize((gt_np * 255).astype(np.uint8), (new_w, new_h))
-        else:
-            display_img = img
-            display_pred = (pred_np * 255).astype(np.uint8)
-            display_gt = (gt_np * 255).astype(np.uint8)
-        
-        h_disp, w_disp = display_pred.shape
-        
-        # Add white border thickness
-        border_thickness = 5
-        
-        # Create 3-panel display with white borders: Original (top), Ground Truth (middle), Prediction (bottom)
-        total_height = h_disp * 3 + border_thickness * 2  # Add space for 2 borders
-        display_combined = np.ones((total_height, w_disp, 3), dtype=np.uint8) * 255  # Initialize with white
-        
-        # Top panel: original image
-        display_combined[:h_disp, :, :] = display_img
-        
-        # White border between original and ground truth (already white from initialization)
-        
-        # Middle panel: ground truth (starting after first border)
-        gt_start = h_disp + border_thickness
-        gt_end = gt_start + h_disp
-        display_combined[gt_start:gt_end, :, 0] = display_gt
-        display_combined[gt_start:gt_end, :, 1] = display_gt
-        display_combined[gt_start:gt_end, :, 2] = display_gt
-        
-        # White border between ground truth and prediction (already white from initialization)
-        
-        # Bottom panel: prediction (starting after second border)
-        pred_start = gt_end + border_thickness
-        pred_end = pred_start + h_disp
-        display_combined[pred_start:pred_end, :, 0] = display_pred
-        display_combined[pred_start:pred_end, :, 1] = display_pred
-        display_combined[pred_start:pred_end, :, 2] = display_pred
-        
-        # Add labels
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 1.5
-        text_color = (255, 255, 255)
-        outline_color = (0, 0, 0)
-        thickness = 6
-        
-        # Draw labels (adjust positions for borders)
-        draw_text_with_outline(display_combined, "Original Image", (10, 60), 
-                              font, font_scale, text_color, outline_color, thickness)
-        
-        draw_text_with_outline(display_combined, "Ground Truth", (10, gt_start + 60), 
-                              font, font_scale, text_color, outline_color, thickness)
-        
-        draw_text_with_outline(display_combined, "Prediction", (10, pred_start + 60), 
-                              font, font_scale, text_color, outline_color, thickness)
-        
-        # Add metrics (adjust position for borders)
-        acc_text = f"Accuracy: {metrics['accuracy']:.4f}, F1: {metrics['f1_score']:.4f}, IoU: {metrics['iou']:.4f}"
-        draw_text_with_outline(display_combined, acc_text, (10, pred_start + 120), 
-                              font, font_scale * 0.8, text_color, outline_color, thickness)
-        
-        # Save image
+        # Create and save visualization
+        visualization = create_visualization(img, gt_np, pred_np)
         save_name = os.path.join(timestamped_save_path, f"fullres_{idx:04d}.png")
-        cv2.imwrite(save_name, display_combined)
+        cv2.imwrite(save_name, visualization)
     
-    # Calculate benchmark metrics (ODS, OIS, AP)
-    print(f"Collected {len(all_predictions)} images for benchmark evaluation")
-    thresholds = np.linspace(0.01, 0.99, 99)
-    benchmark_metrics = calculate_pr_metrics_at_thresholds(all_predictions, all_groundtruths, thresholds)
+    # Calculate all metrics
+    print(f"Calculating metrics for {len(all_predictions)} images...")
+    metrics_results = calculate_metrics(all_predictions, all_groundtruths, threshold)
     
-    # Calculate and save average metrics
-    with open(eval_file, 'w') as f:
-        # Write header
-        f.write("=" * 80 + "\n")
-        f.write(f"DeepCrack Full-Resolution Evaluation Results - {timestamp}\n")
-        f.write(f"Model: {pretrained_model}\n")
-        f.write(f"Images saved in: {timestamped_save_path}\n")
-        f.write("=" * 80 + "\n\n")
-        
-        # Write per-image metrics
-        f.write("Per-Image Metrics:\n")
-        f.write("-" * 40 + "\n")
-        
-        for idx, metrics in enumerate(all_metrics):
-            f.write(f"Image #{idx}:\n")
-            f.write(f"  Accuracy: {metrics['accuracy']:.4f}\n")
-            f.write(f"  Precision: {metrics['precision']:.4f}\n")
-            f.write(f"  Recall: {metrics['recall']:.4f}\n")
-            f.write(f"  F1 Score: {metrics['f1_score']:.4f}\n")
-            f.write(f"  IoU: {metrics['iou']:.4f}\n")
-            f.write(f"  Crack Pixel Accuracy: {metrics['crack_accuracy']:.4f}\n")
-            f.write(f"  Non-Crack Pixel Accuracy: {metrics['non_crack_accuracy']:.4f}\n")
-            f.write(f"  TP: {metrics['TP']}, FP: {metrics['FP']}, TN: {metrics['TN']}, FN: {metrics['FN']}\n\n")
-          # Calculate and write average metrics
-        f.write("\nAverage Metrics:\n")
-        f.write("-" * 40 + "\n")
-        
-        # Calculate average IoU only for images with positive pixels
-        valid_iou_scores = [m['iou'] for m in all_metrics if m['has_positive_pixels'] and not np.isnan(m['iou'])]
-        num_images_with_cracks = len(valid_iou_scores)
-        avg_iou = sum(valid_iou_scores) / num_images_with_cracks if num_images_with_cracks > 0 else 0.0
-        
-        avg_metrics = {
-            'accuracy': sum(m['accuracy'] for m in all_metrics) / len(all_metrics),
-            'precision': sum(m['precision'] for m in all_metrics) / len(all_metrics),
-            'recall': sum(m['recall'] for m in all_metrics) / len(all_metrics),
-            'f1_score': sum(m['f1_score'] for m in all_metrics) / len(all_metrics),
-            'iou': avg_iou,
-        }
-        
-        f.write(f"Average Accuracy: {avg_metrics['accuracy']:.4f}\n")
-        f.write(f"Average Precision: {avg_metrics['precision']:.4f}\n")
-        f.write(f"Average Recall: {avg_metrics['recall']:.4f}\n")
-        f.write(f"Average F1 Score: {avg_metrics['f1_score']:.4f}\n")
-        f.write(f"Average IoU: {avg_metrics['iou']:.4f} (calculated from {num_images_with_cracks} images with cracks out of {len(all_metrics)} total images)\n")
-        
-        # Calculate total confusion matrix values
-        total_tp = sum(m['TP'] for m in all_metrics)
-        total_fp = sum(m['FP'] for m in all_metrics)
-        total_tn = sum(m['TN'] for m in all_metrics)
-        total_fn = sum(m['FN'] for m in all_metrics)
-        
-        f.write(f"\nTotal Confusion Matrix:\n")
-        f.write(f"  True Positives: {total_tp}\n")
-        f.write(f"  False Positives: {total_fp}\n")
-        f.write(f"  True Negatives: {total_tn}\n")
-        f.write(f"  False Negatives: {total_fn}\n")
-        
-        # Calculate global metrics from totals
-        total_pixels = total_tp + total_fp + total_tn + total_fn
-        global_accuracy = (total_tp + total_tn) / total_pixels
-        global_precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0
-        global_recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0
-        global_f1 = 2 * (global_precision * global_recall) / (global_precision + global_recall) if (global_precision + global_recall) > 0 else 0
-        global_iou = total_tp / (total_tp + total_fp + total_fn) if (total_tp + total_fp + total_fn) > 0 else 0
-        
-        f.write(f"\nGlobal Metrics (calculated from total pixel counts):\n")
-        f.write(f"  Global Accuracy: {global_accuracy:.4f}\n")
-        f.write(f"  Global Precision: {global_precision:.4f}\n")
-        f.write(f"  Global Recall: {global_recall:.4f}\n")
-        f.write(f"  Global F1 Score: {global_f1:.4f}\n")
-        f.write(f"  Global IoU: {global_iou:.4f}\n")
-          # Add benchmark metrics section (remove AUC section)
-        f.write("\nBoundary Detection Benchmark Metrics:\n")
-        f.write("-" * 40 + "\n")
-        f.write(f"ODS (Optimal Dataset Scale): {benchmark_metrics['ODS']:.4f} at threshold {benchmark_metrics['ODS_threshold']:.2f}\n")
-        f.write(f"OIS (Optimal Image Scale): {benchmark_metrics['OIS']:.4f}\n")
+    # Write evaluation results
+    eval_file = os.path.join(eval_path, f"{result_folder_name}.txt")
+    write_evaluation_results(eval_file, metrics_results, timestamp, pretrained_model, timestamped_save_path)
     
     print(f"Evaluation results saved to {eval_file}")
     print(f"Images saved to {timestamped_save_path}")
