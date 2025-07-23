@@ -18,6 +18,11 @@ import time
 
 os.environ["CUDA_VISIBLE_DEVICES"] = cfg.gpu_id
 
+# Initialize training and validation datasets paths
+train_img_path = "data/img_debug"
+train_mask_path = "data/mask_debug"
+val_img_path = "data/img_val"
+val_mask_path = "data/mask_val"
 
 def save_config_to_file(model_path=None):
     """
@@ -120,28 +125,39 @@ def save_config_to_file(model_path=None):
     print(f"Configuration saved to {filepath}")
     return filepath
 
-
 def main():
     # ----------------------- dataset ----------------------- #
+    train_transforms = []
+    val_transforms = []
 
-    transforms = [
-        pp.Crop(range_crop_len=(200, 1000), n_copy=10),
-        pp.Resize(target_size=(448, 448))
-    ]
+    if cfg.train_random_crop == True:
+        train_transforms = [
+            pp.Crop(range_crop_len=(200, 1000), n_copy=10), # Random crop with size between 200 x 200 and 1000 x 1000 pixels
+            pp.Resize(target_size=(448, 448))
+        ]
+
+    if cfg.val_random_crop == True:
+        val_transforms = [
+            pp.Crop(range_crop_len=(200, 1000), n_copy=10), # Random crop with size between 200 x 200 and 1000 x 1000 pixels
+            pp.Resize(target_size=(448, 448))
+        ]
+    
     train_dataset = CrackDataset(
-        dataset_img_path="data/img_debug",
-        dataset_mask_path="data/mask_debug",
-        augmentations=transforms
+        dataset_img_path=train_img_path,
+        dataset_mask_path=train_mask_path,
+        augmentations=train_transforms
     )
-    test_dataset = CrackDataset(
-        dataset_img_path="data/img_debug",
-        dataset_mask_path="data/mask_debug"
+
+    val_dataset = CrackDataset(
+        dataset_img_path=val_img_path,
+        dataset_mask_path=val_mask_path,
+        augmentations=val_transforms
     )
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=cfg.train_batch_size,
                                                shuffle=True, num_workers=4, drop_last=False)
 
-    val_loader = torch.utils.data.DataLoader(test_dataset, batch_size=cfg.val_batch_size,
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=cfg.val_batch_size,
                                              shuffle=False, num_workers=4, drop_last=False)
 
     # Debug
