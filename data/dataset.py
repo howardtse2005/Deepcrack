@@ -1,201 +1,112 @@
-import cv2
-import numpy as np
+import data.preprocess_pipeline as pp
 from torch.utils.data import Dataset
+from os.path import exists, join
+import os, cv2
+import numpy as np
 import torch
-import random
-from config import Config as cfg
-
-
-def readIndex(index_path, shuffle=False):
-    img_list = []
-    with open(index_path, 'r') as file_to_read:
-        while True:
-            lines = file_to_read.readline()
-            if not lines:
-                break
-            item = lines.strip().split()
-            img_list.append(item)
-    file_to_read.close()
-    if shuffle is True:
-        random.shuffle(img_list)
-    return img_list
-
-class dataReadPip(object):
-
-    def __init__(self, crop=True, transforms=None, target_size=cfg.target_size, min_size=cfg.min_size, 
-                 crop_size=cfg.target_size, num_crops=cfg.num_crops, num_crops_with_cracks=cfg.num_crops_with_cracks):
-        self.transforms = transforms
-        self.crop = crop
-        self.target_size = target_size
-        self.min_size = min_size
-        self.crop_size = crop_size
-        self.num_crops = num_crops
-        self.num_crops_with_cracks = num_crops_with_cracks
-
-    def __call__(self, item):
-        img = cv2.imread(item[0])
-        lab = cv2.imread(item[1])
-
-        if len(lab.shape) != 2:
-            lab = cv2.cvtColor(lab, cv2.COLOR_BGR2GRAY)
-
-        # Ensure mask dimensions match image dimensions
-        img_h, img_w = img.shape[:2]
-        mask_h, mask_w = lab.shape[:2]
-        
-        # Check if dimensions are rotated relative to each other (width/height swapped)
-        rotated = False
-        if img_h != mask_h or img_w != mask_w:
-            # Check if aspect ratios are inverted (potential 90-degree rotation)
-            img_ratio = img_w / img_h
-            mask_ratio = mask_w / mask_h
-            
-            # If image is wide but mask is tall or vice versa
-            if (img_ratio > 1 and mask_ratio < 1) or (img_ratio < 1 and mask_ratio > 1):
-                print(f"Detected potential 90-degree rotation. Img ratio: {img_ratio:.2f}, Mask ratio: {mask_ratio:.2f}")
-                # Rotate image 90 degrees to match mask orientation
-                img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
-                img_h, img_w = img.shape[:2]  # Update dimensions after rotation
-                rotated = True
-                print(f"Image rotated. New dimensions: {img_w}x{img_h}")
-        
-        # After potential rotation correction, resize mask if needed
-        if img_h != mask_h or img_w != mask_w:
-            print(f"Warning: Image dimensions ({img_w}x{img_h}) don't match mask dimensions ({mask_w}x{mask_h}). Resizing mask to match.")
-            lab = cv2.resize(lab, (img_w, img_h), interpolation=cv2.INTER_NEAREST)
-
-        if not self.crop:
-            # Resize images and labels to the target size
-            img = cv2.resize(img, self.target_size, interpolation=cv2.INTER_LINEAR)
-            lab = cv2.resize(lab, self.target_size, interpolation=cv2.INTER_NEAREST)
-
-            if self.transforms is not None:
-                img, lab = self.transforms(img, lab)
-
-            img = _preprocess_img(img)
-            lab = _preprocess_lab(lab)
-            return (img, lab)
-        
-        ### If self.crop is True, perform random cropping 
-        # Resize if either dimension is less than crop_size, maintaining aspect ratio
-        h, w = img.shape[:2]
-        crop_small = False
-        if h < self.min_size or w < self.min_size:
-            if h < w:
-                scale = self.min_size / h
-            else:
-                scale = self.min_size / w
-            new_h = int(round(h * scale))
-            new_w = int(round(w * scale))
-            img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-            lab = cv2.resize(lab, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
-            print(f"Resized image dimensions: {img.shape[:2]}")
-            print(f"Resized mask dimensions: {lab.shape[:2]}")
-            crop_small = True
-        elif h == self.min_size or w == self.min_size:
-            crop_small = True
-
-        # Perform random cropping
-        crops_with_cracks = []
-        crops_without_cracks = []
-        max_attempts = 1000
-        attempts = 0
-
-        if crop_small:
-            # Only crop one image if either dimension was less than 448
-            all_crops = [(img[:self.crop_size[0], :self.crop_size[1]], lab[:self.crop_size[0], :self.crop_size[1]])]
-        
-        else:
-            # Perform random cropping with filtering and fallback after max_attempts 
-            while (len(crops_with_cracks) < self.num_crops_with_cracks or len(crops_without_cracks) < (self.num_crops - self.num_crops_with_cracks)) and attempts < max_attempts:
-                h, w = img.shape[:2]
-                crop_h, crop_w = self.crop_size
-                top = random.randint(0, h - crop_h)
-                left = random.randint(0, w - crop_w)
-
-                img_crop = img[top:top + crop_h, left:left + crop_w]
-                lab_crop = lab[top:top + crop_h, left:left + crop_w]
-
-                # Resize images and labels to the target size
-                if self.target_size != self.crop_size:
-                    img_crop = cv2.resize(img_crop, self.target_size, interpolation=cv2.INTER_LINEAR)
-                    lab_crop = cv2.resize(lab_crop, self.target_size, interpolation=cv2.INTER_NEAREST)
-
-                # Check if the crop contains cracks (pixels with value 255 in the label)
-                if np.any(lab_crop == 255) and len(crops_with_cracks) < self.num_crops_with_cracks:
-                    crops_with_cracks.append((img_crop, lab_crop))
-                elif not np.any(lab_crop == 255) and len(crops_without_cracks) < (self.num_crops - self.num_crops_with_cracks):
-                    crops_without_cracks.append((img_crop, lab_crop))
-                
-                attempts += 1
-
-            # If not enough, fill the rest with random crops (no filtering)
-            total_needed = self.num_crops - (len(crops_with_cracks) + len(crops_without_cracks))
-            for _ in range(total_needed):
-                h, w = img.shape[:2]
-                crop_h, crop_w = self.crop_size
-                top = random.randint(0, h - crop_h)
-                left = random.randint(0, w - crop_w)
-                img_crop = img[top:top + crop_h, left:left + crop_w]
-                lab_crop = lab[top:top + crop_h, left:left + crop_w]
-                # Add to whichever list is not full, or just append to crops_without_white
-                if len(crops_with_cracks) < self.num_crops_with_cracks:
-                    crops_with_cracks.append((img_crop, lab_crop))
-                else:
-                    crops_without_cracks.append((img_crop, lab_crop))
-
-            # Combine crops and preprocess
-            all_crops = crops_with_cracks + crops_without_cracks
-        
-        processed_crops = [(_preprocess_img(crop[0]), _preprocess_lab(crop[1])) for crop in all_crops]
-
-        return processed_crops
-
-def _preprocess_img(cvImage):
-        '''
-        :param cvImage: numpy HWC BGR 0~255
-        :return: tensor img CHW BGR  float32 cpu 0~1
-        '''
-
-        cvImage = cvImage.transpose(2, 0, 1).astype(np.float32) / 255
-
-
-        return torch.from_numpy(cvImage)
-
-def _preprocess_lab(cvImage):
-        '''
-        :param cvImage: numpy 0(background) or 255(crack pixel)
-        :return: tensor 0 or 1 float32
-        '''
-        cvImage = cvImage.astype(np.float32) / 255
-
-        return torch.from_numpy(cvImage)
-
-
-class loadedDataset(Dataset):
+class CrackDataset(Dataset):
     """
     Create a torch Dataset from data
     """
 
-    def __init__(self, dataset, preprocess=None):
-        super(loadedDataset, self).__init__()
-        self.samples = []
-        if preprocess is None:
-            preprocess = lambda x: x
+    def __init__(self, dataset_img_path:str, dataset_mask_path:str, augmentations:list[pp.Augmentation]=[],
+                 mask_postfix:str='_GT.png'):
+        super().__init__()
+        self.pp = pp.PreprocessPipeline(augmentations) 
+        if not exists(dataset_img_path):
+            raise FileNotFoundError(f"Dataset path {dataset_img_path} does not exist.")
+        if not exists(dataset_mask_path):
+            raise FileNotFoundError(f"Dataset path {dataset_mask_path} does not exist.")
         
-        # Flatten all crops from all images
-        print("Preprocessing dataset...")
-        for item in dataset:
-            crops = preprocess(item)
-            if isinstance(crops, list):
-                self.samples.extend(crops)
-            else:
-                self.samples.append(crops)
-        print(f"Total samples after processing: {len(self.samples)}")
-
-    def __getitem__(self, index):
-        return self.samples[index]
-
+        image_files, mask_files = self._get_files(dataset_img_path, dataset_mask_path)
+        imgs, masks = self._get_images(image_files, mask_files, dataset_img_path, dataset_mask_path, mask_postfix)
+        
+        print("images and masks loaded, applying augmentations...")
+        self.imgs, self.masks = self.pp(imgs, masks) # apply augmentations
+        print(f"Dataset initialized with {len(self.imgs)} images and masks.")
+        
     def __len__(self):
-        return len(self.samples)
+        return len(self.imgs)
+    
+    def __getitem__(self, index):
+        if index < 0 or index >= len(self.imgs):
+            raise IndexError("Index out of range.")
+        img, mask = torch.from_numpy(self.imgs[index]).permute(2, 0, 1), torch.from_numpy(self.masks[index])
+        return img, mask # img out is (C, H, W) and mask out is (H, W) in tensor
 
+    def _get_files(self, img_dir, mask_dir):
+        '''
+        Get all image and mask files in the specified directories. and check validity
+        '''
+        image_files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        mask_files = [f for f in os.listdir(mask_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        if not image_files:
+            raise FileExistsError(f"No image files found in {img_dir}")
+        if not mask_files:
+            raise FileExistsError(f"No mask files found in {mask_dir}")
+        if len(image_files) != len(mask_files):
+            raise ValueError("Number of images and masks do not match.")
+        return image_files, mask_files
+    
+    def _get_images(self, image_files, mask_files, dataset_img_path, dataset_mask_path, mask_postfix):
+        imgs, masks = [], []
+        for img_file in image_files:
+            base_name = os.path.splitext(img_file)[0]
+            mask_file = f"{base_name}{mask_postfix}"
+            if mask_file in mask_files:
+                img_path = join(dataset_img_path, img_file)
+                mask_path = join(dataset_mask_path, mask_file)
+                img, mask = self._read_image(img_path, mask_path)
+                imgs.append(img)
+                masks.append(mask)
+            else:
+                raise FileNotFoundError(f"Mask file {mask_file} not found for image {img_file}.")
+        return imgs, masks
+    
+    def _read_image(self, img_path, mask_path):
+        '''
+        Read an image and its corresponding mask. And check if they are valid.
+        images are assumed to be binary in single channel
+        '''
+        img = cv2.imread(img_path, cv2.IMREAD_COLOR_RGB)
+        if img is None:
+            raise ValueError(f"Image {img_path} could not be read.")
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        if mask is None:
+            raise ValueError(f"Mask {mask_path} could not be read.")
+        if img.shape[:2] != mask.shape[:2]:
+            raise ValueError(f"Image {img_path} and mask {mask_path} dimensions do not match.")
+        if mask.max() > 1:
+            mask = mask // 255  # Normalize mask to 0-1 range
+        mask = np.ceil(mask).astype(np.uint8)
+        return img, mask
+    
+   
+if __name__ == "__main__":
+    # Example usage
+    transforms = [
+        pp.Crop(range_crop_len=(200, 1000), n_copy=10),
+        pp.Resize(target_size=(448, 448))
+    ]
+
+    dataset = CrackDataset(
+        dataset_img_path="img_debug",
+        dataset_mask_path="mask_debug",
+        augmentations=transforms
+    )
+
+    print(f"Dataset length: {len(dataset)}")
+    for i in range(len(dataset)):
+        img, mask = dataset[i]
+        print(f"Image {i} shape: {img.shape}, Mask {i} shape: {mask.shape}")
+
+        # Convert mask to 3-channel for concatenation with image
+        mask_3ch = np.expand_dims(mask, axis=2)  # Add channel dimension
+        mask_3ch = np.repeat(mask_3ch, 3, axis=2)  # Repeat to get 3 channels
+        mask_3ch = mask_3ch * 255  # Scale to 0-255 for visibility
+
+        # Concatenate image and mask horizontally
+        out = np.concatenate((img,mask_3ch), axis=1)
+        cv2.imshow("Output", out)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
