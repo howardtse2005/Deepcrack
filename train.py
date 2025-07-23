@@ -1,5 +1,5 @@
-from data.augmentation import augCompose, RandomBlur, RandomColorJitter
-from data.dataset import readIndex, dataReadPip, loadedDataset
+import data.preprocess_pipeline as pp
+from data.dataset import CrackDataset
 from tqdm import tqdm
 from model.deepcrack import DeepCrack
 from model.hnet import HNet
@@ -124,15 +124,19 @@ def save_config_to_file(model_path=None):
 def main():
     # ----------------------- dataset ----------------------- #
 
-    data_augment_op = augCompose(transforms=[[RandomColorJitter, 0.5], [RandomBlur, 0.2]])
-
-    ## SELF-ADDED (Specify target size for resizing)
-    train_pipline = dataReadPip(transforms=data_augment_op, crop=True)
-    test_pipline = dataReadPip(transforms=None, crop=True)
-
-    train_dataset = loadedDataset(readIndex(cfg.train_data_path, shuffle=True), preprocess=train_pipline)
-
-    test_dataset = loadedDataset(readIndex(cfg.val_data_path), preprocess=test_pipline)
+    transforms = [
+        pp.Crop(range_crop_len=(200, 1000), n_copy=10),
+        pp.Resize(target_size=(448, 448))
+    ]
+    train_dataset = CrackDataset(
+        dataset_img_path="data/img_debug",
+        dataset_mask_path="data/mask_debug",
+        augmentations=transforms
+    )
+    test_dataset = CrackDataset(
+        dataset_img_path="data/img_debug",
+        dataset_mask_path="data/mask_debug"
+    )
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=cfg.train_batch_size,
                                                shuffle=True, num_workers=4, drop_last=False)

@@ -19,3 +19,7 @@
 /model/__pycache__/
 /runs
 /__pycache__/
+*.png
+*.jpg
+*.JPG
+*.jpeg
