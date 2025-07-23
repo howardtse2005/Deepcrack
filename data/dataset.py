@@ -44,23 +44,35 @@ class CrackDataset(Dataset):
             raise FileExistsError(f"No image files found in {img_dir}")
         if not mask_files:
             raise FileExistsError(f"No mask files found in {mask_dir}")
-        if len(image_files) != len(mask_files):
-            raise ValueError("Number of images and masks do not match.")
+        # Remove the length check since we'll filter for matching pairs
         return image_files, mask_files
     
     def _get_images(self, image_files, mask_files, dataset_img_path, dataset_mask_path, mask_postfix):
+        '''
+        Fix matching image-mask pairs by skipping images without corresponding paired masks.
+        '''
         imgs, masks = [], []
+        matched_pairs = 0
+        
         for img_file in image_files:
             base_name = os.path.splitext(img_file)[0]
             mask_file = f"{base_name}{mask_postfix}"
+            
             if mask_file in mask_files:
                 img_path = join(dataset_img_path, img_file)
                 mask_path = join(dataset_mask_path, mask_file)
-                img, mask = self._read_image(img_path, mask_path)
-                imgs.append(img)
-                masks.append(mask)
+                try:
+                    img, mask = self._read_image(img_path, mask_path)
+                    imgs.append(img)
+                    masks.append(mask)
+                    matched_pairs += 1
+                except Exception as e:
+                    print(f"Error loading pair {img_file}, {mask_file}: {e}")
+                    continue
             else:
-                raise FileNotFoundError(f"Mask file {mask_file} not found for image {img_file}.")
+                print(f"No mask found for {img_file} (looking for {mask_file})")
+        
+        print(f"Successfully matched {matched_pairs} image-mask pairs out of {len(image_files)} images")
         return imgs, masks
     
     def _read_image(self, img_path, mask_path):
@@ -68,9 +80,13 @@ class CrackDataset(Dataset):
         Read an image and its corresponding mask. And check if they are valid.
         images are assumed to be binary in single channel
         '''
-        img = cv2.imread(img_path, cv2.IMREAD_COLOR_RGB)
+        img = cv2.imread(img_path, cv2.IMREAD_COLOR)  # Fixed: cv2.IMREAD_COLOR instead of cv2.IMREAD_COLOR_RGB
         if img is None:
             raise ValueError(f"Image {img_path} could not be read.")
+        
+        # Convert BGR to RGB since cv2 reads in BGR by default
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         if mask is None:
             raise ValueError(f"Mask {mask_path} could not be read.")
@@ -82,31 +98,31 @@ class CrackDataset(Dataset):
         return img, mask
     
    
-if __name__ == "__main__":
-    # Example usage
-    transforms = [
-        pp.Crop(range_crop_len=(200, 1000), n_copy=10),
-        pp.Resize(target_size=(448, 448))
-    ]
+# if __name__ == "__main__":
+#     # Example usage
+#     transforms = [
+#         pp.Crop(range_crop_len=(200, 1000), n_copy=10),
+#         pp.Resize(target_size=(448, 448))
+#     ]
 
-    dataset = CrackDataset(
-        dataset_img_path="img_debug",
-        dataset_mask_path="mask_debug",
-        augmentations=transforms
-    )
+#     dataset = CrackDataset(
+#         dataset_img_path="img_debug",
+#         dataset_mask_path="mask_debug",
+#         augmentations=transforms
+#     )
 
-    print(f"Dataset length: {len(dataset)}")
-    for i in range(len(dataset)):
-        img, mask = dataset[i]
-        print(f"Image {i} shape: {img.shape}, Mask {i} shape: {mask.shape}")
+#     print(f"Dataset length: {len(dataset)}")
+#     for i in range(len(dataset)):
+#         img, mask = dataset[i]
+#         print(f"Image {i} shape: {img.shape}, Mask {i} shape: {mask.shape}")
 
-        # Convert mask to 3-channel for concatenation with image
-        mask_3ch = np.expand_dims(mask, axis=2)  # Add channel dimension
-        mask_3ch = np.repeat(mask_3ch, 3, axis=2)  # Repeat to get 3 channels
-        mask_3ch = mask_3ch * 255  # Scale to 0-255 for visibility
+#         # Convert mask to 3-channel for concatenation with image
+#         mask_3ch = np.expand_dims(mask, axis=2)  # Add channel dimension
+#         mask_3ch = np.repeat(mask_3ch, 3, axis=2)  # Repeat to get 3 channels
+#         mask_3ch = mask_3ch * 255  # Scale to 0-255 for visibility
 
-        # Concatenate image and mask horizontally
-        out = np.concatenate((img,mask_3ch), axis=1)
-        cv2.imshow("Output", out)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+#         # Concatenate image and mask horizontally
+#         out = np.concatenate((img,mask_3ch), axis=1)
+#         cv2.imshow("Output", out)
+#         cv2.waitKey(0)
+#         cv2.destroyAllWindows()

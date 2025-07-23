@@ -23,17 +23,24 @@ class PreprocessPipeline:
         
 
     def __call__(self, imgs:list[np.ndarray], masks:list[np.ndarray]):        
-        if self.augmentations != []:
-            imgs_out, masks_out = [], []
-            for aug in self.augmentations:
-                if aug.use_raw:
-                    imgs_aug, masks_aug = aug(imgs, masks)
-                    imgs_out.extend(imgs_aug)
-                    masks_out.extend(masks_aug)
-                else:
-                    imgs_aug, masks_aug = aug(imgs_out, masks_out)
-                    imgs_out = imgs_aug
-                    masks_out = masks_aug
+        imgs_out, masks_out = [], []
+        
+        # If no augmentations, return original images
+        if not self.augmentations:
+            return imgs, masks
+            
+        # Initialize with original images for the first augmentation
+        imgs_out, masks_out = imgs[:], masks[:]
+        
+        for aug in self.augmentations:
+            if aug.use_raw:
+                imgs_aug, masks_aug = aug(imgs, masks)
+                imgs_out.extend(imgs_aug)
+                masks_out.extend(masks_aug)
+            else:
+                imgs_aug, masks_aug = aug(imgs_out, masks_out)
+                imgs_out = imgs_aug
+                masks_out = masks_aug
         return imgs_out, masks_out
 
 class Resize(Augmentation):
