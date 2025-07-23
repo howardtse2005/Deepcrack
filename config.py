@@ -35,6 +35,8 @@ class Config:
     min_size = 448   # Minimum size for images
     num_crops = 20   # Total number of crops per image
     num_crops_with_cracks = 10  # Number of crops that should contain cracks
+    train_random_crop = False # Bool to state wheteher we want to perform random cropping for training or not
+    val_random_crop = False # Bool to state wheteher we want to perform random cropping for validation or not
 
     # training
     epoch = 100
