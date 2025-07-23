@@ -70,12 +70,6 @@ class Config:
     # TensorBoard settings
     tensorboard_dir = 'runs/deepcrack'
     export_loss_dir = 'deepcrack_results/loss'  # Directory to save loss curve JPGs
-
-    # HNet-specific configuration
-    group_norm_groups = 8  # Number of groups for GroupNorm layers
-    
-    # Multi-scale convolution parameters
-    ms_dilations = [1, 2, 4]  # Dilation rates for multi-scale convolution
     
     def _parse(self, kwargs):
         state_dict = self._state_dict()
