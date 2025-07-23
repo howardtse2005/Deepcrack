@@ -1,0 +1,133 @@
+import torch
+import os
+import tqdm
+from tools.tensorboard_logger import TensorBoardLogger
+class Trainer():
+    """
+    Trainer class for training models with various configurations.
+    
+    Attributes:
+        model (nn.Module): The model to be trained.
+        optimizer (torch.optim.Optimizer): The optimizer for training.
+        criterion (callable): The loss function.
+        device (torch.device): The device to run the training on.
+        config (Config): Configuration object containing training parameters.
+    """
+    
+    def __init__(self, model, optimizer, scheduler, criterion, device, config,
+                 train_loader, val_loader, log_dir, epoch_goal=100, epoch_trained=0):
+        self.model = model
+        self.optimizer = optimizer
+        self.scheduler = scheduler
+        self.criterion = criterion
+        self.device = device
+        self.logger = TensorBoardLogger(log_dir=log_dir)
+        self.config = config
+        self.train_loader = train_loader
+        self.val_loader = val_loader
+        self.epoch_goal = epoch_goal
+        self.epoch_trained = epoch_trained
+
+    def train(self):
+        """
+        Train the model using the provided data loaders.
+        """
+        for epoch in range(self.epoch_goal):
+            print(f"Epoch {epoch + 1}/{self.epoch_goal}")
+            # Training round
+            with tqdm.tqdm(self.train_loader, desc='Training') as pbar:
+                epoch_loss_train = 0
+                log_epoch_loss_train = {}
+                for batch_idx, (data, target) in enumerate(self.train_loader):
+                                        
+                    # get the result from one training step
+                    batch_loss, log_loss = self._train_batch(data, target)
+                    log_epoch_loss_train = self._add_dict(log_epoch_loss_train, log_loss)
+                    epoch_loss_train += batch_loss.item()
+                    
+                    # update progress bar
+                    pbar.set_postfix({'loss (batch)': batch_loss.item()})
+                    pbar.update(1)
+                pbar.set_postfix({'loss (epoch)': epoch_loss_train / len(self.train_loader)})
+                self.logger.add_scalars('train', log_epoch_loss_train, epoch + 1)
+                pbar.close()
+            # Validation round
+            with tqdm.tqdm(self.val_loader, desc='Validation') as pbar:
+                epoch_loss_val = 0
+                log_epoch_loss_val = {}
+                for batch_idx, (data, target) in enumerate(self.val_loader):
+
+                    batch_loss, log_loss = self._val_batch(data, target)
+                    log_epoch_loss_val = self._add_dict(log_epoch_loss_val, log_loss)
+                    epoch_loss_val += batch_loss.item()
+                    
+                    pbar.set_postfix({'loss (batch)': batch_loss.item()})
+                    pbar.update(1)
+                self.logger.add_scalars('val', log_epoch_loss_val, epoch + 1)
+            pbar.set_postfix({'loss (epoch)': epoch_loss_val / len(self.val_loader)})
+            pbar.close()
+        
+    def _train_batch(self, data, target):
+        self.model.train()
+        data, target = data.to(self.device), target.to(self.device)
+        output = self.model(data)
+        batch_loss, log_loss = self._calculate_loss(output, target)
+        self.optimizer.zero_grad()
+        batch_loss.backward()
+        
+         # Check if gradients are flowing
+        total_grad_norm = 0
+        for param in self.model.parameters():
+            if param.grad is not None:
+                total_grad_norm += param.grad.data.norm(2).item() ** 2
+        total_grad_norm = total_grad_norm ** 0.5
+        
+        if total_grad_norm < 1e-8:
+            print(f"Warning: Very small gradients! Norm: {total_grad_norm}")
+        
+        self.optimizer.step()
+        self.scheduler.step()
+        return batch_loss, log_loss
+
+    def _val_batch(self, data, target):
+        self.model.eval()
+        with torch.no_grad():
+            data, target = data.to(self.device), target.to(self.device)
+            output = self.model(data)
+            batch_loss, log_loss = self._calculate_loss(output, target)
+        return batch_loss, log_loss
+
+
+    def _calculate_loss(self, output, target):
+        '''
+        To be implemented by trainer subclass.
+        '''
+        loss = self.criterion(output, target)
+        log_loss = {'bce_loss': loss.item()}
+        return loss, log_loss
+        pass
+    
+    def _add_dict(self, dict1, dict2):
+        return {k: dict1.get(k, 0) + dict2.get(k, 0) for k in set(dict1) | set(dict2)}
+
+
+if __name__ == "__main__":
+    # Example usage
+    from torch import nn, optim
+    from torchvision import models
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = models.resnet18(pretrained=True).to(device)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.1)
+    criterion = nn.CrossEntropyLoss()
+
+    # Dummy data loaders
+    train_loader = [(torch.randn(4, 3, 224, 224), torch.randint(0, 2, (4,))) for _ in range(100)]
+    val_loader = [(torch.randn(4, 3, 224, 224), torch.randint(0, 2, (4,))) for _ in range(20)]
+
+    trainer = Trainer(model, optimizer, scheduler, criterion, device, None, 
+                      train_loader=train_loader, val_loader=val_loader, log_dir='test')
+    
+    trainer.train()
+    print("Training complete.")
