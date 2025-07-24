@@ -3,7 +3,7 @@ import random
 import numpy as np
 import torch
 import torch.nn.functional as F
-
+import tqdm
 class Augmentation:
     # Base class for all augmentations
     def __init__(self, name:str, n_copy:int=1, use_raw:bool=False):
@@ -33,12 +33,14 @@ class PreprocessPipeline:
             
         # Initialize with original images for the first augmentation
         imgs_out, masks_out = imgs[:], masks[:]
-        
-        for aug in self.augmentations:
-            if aug.use_raw:
-                imgs_aug, masks_aug = aug(imgs, masks)
-                imgs_out.extend(imgs_aug)
-                masks_out.extend(masks_aug)
+
+        with tqdm.tqdm(total=len(self.augmentations), desc='Applying augmentations') as pbar:
+            for aug in self.augmentations:
+                if aug.use_raw:
+                    imgs_aug, masks_aug = aug(imgs, masks)
+                    imgs_out.extend(imgs_aug)
+                    masks_out.extend(masks_aug)
+                pbar.update(1)
             else:
                 imgs_aug, masks_aug = aug(imgs_out, masks_out)
                 imgs_out = imgs_aug

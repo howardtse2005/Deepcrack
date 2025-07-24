@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 from os.path import exists, join
 import os, cv2
 import numpy as np
-import torch
+import torch, tqdm
 class CrackDataset(Dataset):
     """
     Create a torch Dataset from data
@@ -21,7 +21,7 @@ class CrackDataset(Dataset):
         image_files, mask_files = self._get_files(dataset_img_path, dataset_mask_path)
         imgs, masks = self._get_images(image_files, mask_files, dataset_img_path, dataset_mask_path, mask_postfix)
         
-        print("images and masks loaded, applying augmentations...")
+        
         self.imgs, self.masks = self.pp(imgs, masks) # apply augmentations
         print(f"Dataset initialized with {len(self.imgs)} images and masks.")
         
@@ -63,25 +63,28 @@ class CrackDataset(Dataset):
         Fix matching image-mask pairs by skipping images without corresponding paired masks.
         '''
         imgs, masks = [], []
-        
-        for img_file in image_files:
-            base_name = os.path.splitext(img_file)[0]
-            mask_file = f"{base_name}{mask_postfix}"
-            
-            if mask_file in mask_files:
-                img_path = join(dataset_img_path, img_file)
-                mask_path = join(dataset_mask_path, mask_file)
-                try:
-                    img, mask = self._read_image(img_path, mask_path)
-                    imgs.append(img)
-                    masks.append(mask)
-        
-                except Exception as e:
-                    print(f"Error loading pair {img_file}, {mask_file}: {e}")
-                    continue
-            else:
-                print(f"No mask found for {img_file} (looking for {mask_file})")
-        
+        with tqdm.tqdm(total=len(image_files), desc='Loading images and masks') as pbar:
+            pbar.set_postfix({'loaded': 0})
+            for img_file in image_files:
+                base_name = os.path.splitext(img_file)[0]
+                mask_file = f"{base_name}{mask_postfix}"
+                
+                if mask_file in mask_files:
+                    img_path = join(dataset_img_path, img_file)
+                    mask_path = join(dataset_mask_path, mask_file)
+                    try:
+                        img, mask = self._read_image(img_path, mask_path)
+                        imgs.append(img)
+                        masks.append(mask)
+                        pbar.update(1)
+                        pbar.set_postfix({'loaded': len(imgs)})
+                    except Exception as e:
+                        print(f"Error loading pair {img_file}, {mask_file}: {e}")
+                        continue
+                else:
+                    print(f"No mask found for {img_file} (looking for {mask_file})")
+        if not imgs or not masks:
+            raise ValueError("No valid image-mask pairs found.")
         return imgs, masks
     
     def _read_image(self, img_path, mask_path):

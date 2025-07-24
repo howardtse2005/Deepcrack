@@ -13,13 +13,10 @@
 /results/loss/*
 /checkpoints/*.pth
 /checkpoints/DeepCrack_CT260_FT1/checkpoints/*
-/data/__pycache__/
-/tools/__pycache__/
 /july2025_imgs/
-/model/__pycache__/
 /runs
-/__pycache__/
 *.png
 *.jpg
 *.JPG
 *.jpeg
+__pycache__
