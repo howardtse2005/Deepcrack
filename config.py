@@ -63,7 +63,7 @@ class Config:
     save_format = ''
     save_acc = -1
     save_pos_acc = -1    # Model configuration
-    model_type = 'unet'  # Options: 'deepcrack', 'unet', 'attention_unet', 'segformer', 'hnet'
+    model_type = 'hnet'  # Options: 'deepcrack', 'unet', 'attention_unet', 'segformer', 'hnet'
     
     # SegFormer-specific configuration
     segformer_variant = 'b5'  # Options: 'b0', 'b1', 'b2', 'b3', 'b4', 'b5'
@@ -71,7 +71,7 @@ class Config:
     
     # TensorBoard settings
     tensorboard_dir = 'runs/deepcrack'
-    export_loss_dir = 'deepcrack_results/loss'  # Directory to save loss curve JPGs
+    export_loss_dir = 'results/loss'  # Directory to save loss curve JPGs
     
     def _parse(self, kwargs):
         state_dict = self._state_dict()

@@ -40,6 +40,17 @@ class CrackDataset(Dataset):
         '''
         image_files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
         mask_files = [f for f in os.listdir(mask_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        
+        # Sort files by numeric order instead of lexicographic order for compatibility with older results
+        def numeric_sort_key(filename):
+            import re
+            # Extract numeric part from filename
+            numbers = re.findall(r'\d+', filename)
+            return int(numbers[0]) if numbers else 0
+        
+        image_files.sort(key=numeric_sort_key)
+        mask_files.sort(key=numeric_sort_key)
+        
         if not image_files:
             raise FileExistsError(f"No image files found in {img_dir}")
         if not mask_files:
@@ -80,12 +91,9 @@ class CrackDataset(Dataset):
         Read an image and its corresponding mask. And check if they are valid.
         images are assumed to be binary in single channel
         '''
-        img = cv2.imread(img_path, cv2.IMREAD_COLOR)  # Fixed: cv2.IMREAD_COLOR instead of cv2.IMREAD_COLOR_RGB
+        img = cv2.imread(img_path)
         if img is None:
             raise ValueError(f"Image {img_path} could not be read.")
-        
-        # Convert BGR to RGB since cv2 reads in BGR by default
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         if mask is None:
@@ -94,7 +102,8 @@ class CrackDataset(Dataset):
             raise ValueError(f"Image {img_path} and mask {mask_path} dimensions do not match.")
         if mask.max() > 1:
             mask = mask // 255  # Normalize mask to 0-1 range
-        mask = np.ceil(mask).astype(np.uint8)
+        mask = np.ceil(mask).astype(np.float32)
+        img = img / 255 # Normalize image to 0-1 range
         return img, mask
     
    

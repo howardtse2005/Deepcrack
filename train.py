@@ -31,7 +31,7 @@ def save_config_to_file(model_path=None):
         model_path: Path to the saved model, if available
     """
     # Create directory if it doesn't exist
-    config_dir = 'deepcrack_results/config'
+    config_dir = 'results/config'
     os.makedirs(config_dir, exist_ok=True)
 
     # Create a timestamp for the filename
