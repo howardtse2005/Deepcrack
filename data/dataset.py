@@ -31,7 +31,7 @@ class CrackDataset(Dataset):
     def __getitem__(self, index):
         if index < 0 or index >= len(self.imgs):
             raise IndexError("Index out of range.")
-        img, mask = torch.from_numpy(self.imgs[index]).permute(2, 0, 1), torch.from_numpy(self.masks[index])
+        img, mask = torch.from_numpy(self.imgs[index].astype(np.float32)).permute(2, 0, 1), torch.from_numpy(self.masks[index].astype(np.float32))
         return img, mask # img out is (C, H, W) and mask out is (H, W) in tensor
 
     def _get_files(self, img_dir, mask_dir):
@@ -63,7 +63,6 @@ class CrackDataset(Dataset):
         Fix matching image-mask pairs by skipping images without corresponding paired masks.
         '''
         imgs, masks = [], []
-        matched_pairs = 0
         
         for img_file in image_files:
             base_name = os.path.splitext(img_file)[0]
@@ -76,14 +75,13 @@ class CrackDataset(Dataset):
                     img, mask = self._read_image(img_path, mask_path)
                     imgs.append(img)
                     masks.append(mask)
-                    matched_pairs += 1
+        
                 except Exception as e:
                     print(f"Error loading pair {img_file}, {mask_file}: {e}")
                     continue
             else:
                 print(f"No mask found for {img_file} (looking for {mask_file})")
         
-        print(f"Successfully matched {matched_pairs} image-mask pairs out of {len(image_files)} images")
         return imgs, masks
     
     def _read_image(self, img_path, mask_path):
