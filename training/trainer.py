@@ -15,7 +15,7 @@ class Trainer():
     """
     
     def __init__(self, model, optimizer, scheduler, criterion, device, config,
-                 train_loader, val_loader, log_dir, epoch_goal=100, epoch_trained=0):
+                 train_loader, val_loader, log_dir, epoch_goal=10, epoch_trained=0, global_step=0):
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -27,46 +27,52 @@ class Trainer():
         self.val_loader = val_loader
         self.epoch_goal = epoch_goal
         self.epoch_trained = epoch_trained
-
     def train(self):
         """
         Train the model using the provided data loaders.
         """
-        for epoch in range(self.epoch_goal):
-            print(f"Epoch {epoch + 1}/{self.epoch_goal}")
-            # Training round
-            with tqdm.tqdm(self.train_loader, desc='Training') as pbar:
-                epoch_loss_train = 0
-                log_epoch_loss_train = {}
-                for batch_idx, (data, target) in enumerate(self.train_loader):
-                                        
-                    # get the result from one training step
-                    batch_loss, log_loss = self._train_batch(data, target)
-                    log_epoch_loss_train = self._add_dict(log_epoch_loss_train, log_loss)
-                    epoch_loss_train += batch_loss.item()
-                    
-                    # update progress bar
-                    pbar.set_postfix({'loss (batch)': batch_loss.item()})
-                    pbar.update(1)
-                pbar.set_postfix({'loss (epoch)': epoch_loss_train / len(self.train_loader)})
-                self.logger.add_scalars('train', log_epoch_loss_train, epoch + 1)
-                pbar.close()
-            # Validation round
-            with tqdm.tqdm(self.val_loader, desc='Validation') as pbar:
-                epoch_loss_val = 0
-                log_epoch_loss_val = {}
-                for batch_idx, (data, target) in enumerate(self.val_loader):
+        try:
+            for epoch in range(self.epoch_trained, self.epoch_goal):
+                self.logger.set_epoch(epoch)
+                print(f"Epoch {epoch}/{self.epoch_goal}")
+                # Training round
+                with tqdm.tqdm(self.train_loader, desc='Training') as pbar:
+                    epoch_loss_train = 0
+                    log_epoch_loss_train = {}
+                    for batch_idx, (data, target) in enumerate(self.train_loader):
+                                            
+                        # get the result from one training step
+                        batch_loss, log_loss = self._train_batch(data, target)
+                        log_epoch_loss_train = self._add_dict(log_epoch_loss_train, log_loss)
+                        epoch_loss_train += batch_loss.item()
+                        
+                        # update progress bar
+                        pbar.set_postfix({'loss (batch)': batch_loss.item()})
+                        pbar.update(1)
+                    pbar.set_postfix({'loss (epoch)': epoch_loss_train / len(self.train_loader)})
+                    self.logger.log_dict(log_epoch_loss_train, 'train')
+                    pbar.close()
+                # Validation round
+                with tqdm.tqdm(self.val_loader, desc='Validation') as pbar:
+                    epoch_loss_val = 0
+                    log_epoch_loss_val = {}
+                    for batch_idx, (data, target) in enumerate(self.val_loader):
 
-                    batch_loss, log_loss = self._val_batch(data, target)
-                    log_epoch_loss_val = self._add_dict(log_epoch_loss_val, log_loss)
-                    epoch_loss_val += batch_loss.item()
-                    
-                    pbar.set_postfix({'loss (batch)': batch_loss.item()})
-                    pbar.update(1)
-                self.logger.add_scalars('val', log_epoch_loss_val, epoch + 1)
-            pbar.set_postfix({'loss (epoch)': epoch_loss_val / len(self.val_loader)})
-            pbar.close()
-        
+                        batch_loss, log_loss = self._val_batch(data, target)
+                        log_epoch_loss_val = self._add_dict(log_epoch_loss_val, log_loss)
+                        epoch_loss_val += batch_loss.item()
+                        
+                        pbar.set_postfix({'loss (batch)': batch_loss.item()})
+                        pbar.update(1)
+                    self.logger.log_dict(log_epoch_loss_val, 'val')
+                pbar.set_postfix({'loss (epoch)': epoch_loss_val / len(self.val_loader)})
+                pbar.close()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            print(f"Training complete.")
+            print(f"training loss curves save to: {self.logger.export_loss_curves()}")
+
     def _train_batch(self, data, target):
         self.model.train()
         data, target = data.to(self.device), target.to(self.device)
@@ -100,10 +106,15 @@ class Trainer():
 
     def _calculate_loss(self, output, target):
         '''
+        Sample loss calculation function.
         To be implemented by trainer subclass.
         '''
         loss = self.criterion(output, target)
-        log_loss = {'bce_loss': loss.item()}
+        log_loss = {
+            'bce_loss': loss.item(),
+            'loss_test1': 1,
+            'loss_test2': 2
+            }
         return loss, log_loss
         pass
     

@@ -20,101 +20,73 @@ class TensorBoardLogger:
         
         self.log_dir = os.path.join(log_dir, exp_name)
         self.writer = SummaryWriter(log_dir=self.log_dir)
-        self.step = 0
         self.epoch = 0
-        self.loss_history = {}  # Store loss history for plotting
-        self.epoch_loss_history = {}  # Store loss history by epoch
+        self.loss_history = {}  # Store loss history by epoch
         self.loss_export_dir = 'deepcrack_results/loss'
         os.makedirs(self.loss_export_dir, exist_ok=True)
         print(f'TensorBoard logs will be saved to {self.log_dir}')
-
-    def set_step(self, step):
-        """Set the current step for logging."""
-        self.step = step
     
     def set_epoch(self, epoch):
         """Set the current epoch for logging."""
         self.epoch = epoch
         
-    def add_scalar(self, tag, value, step=None):
+    def add_scalar(self, tag, value):
         """Add scalar value to TensorBoard."""
-        if step is None:
-            step = self.step
-        
-        self.writer.add_scalar(tag, value, step)
+        self.writer.add_scalar(tag, value, self.epoch)
         
         # Store value for loss curve plotting
         if 'loss' in tag.lower():
             if tag not in self.loss_history:
                 self.loss_history[tag] = []
-                self.epoch_loss_history[tag] = []
-            self.loss_history[tag].append((step, value))
             
-            # Also store by epoch
             # Check if we already have a value for this epoch
-            if not self.epoch_loss_history[tag] or self.epoch_loss_history[tag][-1][0] != self.epoch:
-                self.epoch_loss_history[tag].append((self.epoch, value))
+            if not self.loss_history[tag] or self.loss_history[tag][-1][0] != self.epoch:
+                self.loss_history[tag].append((self.epoch, value))
             else:
-                # Update the last value for this epoch (average or take the latest)
-                last_epoch, last_value = self.epoch_loss_history[tag][-1]
-                # Simple approach: just use the latest value
-                self.epoch_loss_history[tag][-1] = (last_epoch, value)
+                # Update the last value for this epoch
+                self.loss_history[tag][-1] = (self.epoch, value)
     
-    def add_scalars(self, main_tag, tag_value_dict, step=None):
+    def add_scalars(self, main_tag, tag_value_dict):
         """Add multiple scalars with the same main tag."""
-        if step is None:
-            step = self.step
-        
-        self.writer.add_scalars(main_tag, tag_value_dict, step)
+        self.writer.add_scalars(main_tag, tag_value_dict, self.epoch)
         
         # Store values for loss curve plotting
         for tag, value in tag_value_dict.items():
             full_tag = f"{main_tag}/{tag}"
             if full_tag not in self.loss_history:
                 self.loss_history[full_tag] = []
-                self.epoch_loss_history[full_tag] = []
-            self.loss_history[full_tag].append((step, value))
             
-            # Also store by epoch
             # Check if we already have a value for this epoch
-            if not self.epoch_loss_history[full_tag] or self.epoch_loss_history[full_tag][-1][0] != self.epoch:
-                self.epoch_loss_history[full_tag].append((self.epoch, value))
+            if not self.loss_history[full_tag] or self.loss_history[full_tag][-1][0] != self.epoch:
+                self.loss_history[full_tag].append((self.epoch, value))
             else:
-                # Update the last value for this epoch (average or take the latest)
-                last_epoch, last_value = self.epoch_loss_history[full_tag][-1]
-                # Simple approach: just use the latest value
-                self.epoch_loss_history[full_tag][-1] = (last_epoch, value)
+                # Update the last value for this epoch
+                self.loss_history[full_tag][-1] = (self.epoch, value)
     
-    def add_image(self, tag, img_tensor, step=None):
+    def add_image(self, tag, img_tensor):
         """Add image to TensorBoard."""
-        if step is None:
-            step = self.step
-        
         if isinstance(img_tensor, np.ndarray):
             img_tensor = torch.from_numpy(img_tensor)
         
-        self.writer.add_image(tag, img_tensor, step)
+        self.writer.add_image(tag, img_tensor, self.epoch)
     
-    def add_images(self, tag, img_tensor, step=None):
+    def add_images(self, tag, img_tensor):
         """Add batch of images to TensorBoard."""
-        if step is None:
-            step = self.step
-        
         if isinstance(img_tensor, np.ndarray):
             img_tensor = torch.from_numpy(img_tensor)
         
-        self.writer.add_images(tag, img_tensor, step)
+        self.writer.add_images(tag, img_tensor, self.epoch)
     
     def log(self, message, tag='info'):
         """Log a text message (printed to console as there's no direct text logging in TensorBoard)."""
         print(f"[{tag}] {message}")
     
-    def log_dict(self, dict_obj, tag='metrics'):
+    def log_dict(self, dict_obj, tag):
         """Log a dictionary of values to TensorBoard."""
         for key, value in dict_obj.items():
             if isinstance(value, (int, float)):
                 self.add_scalar(f"{tag}/{key}", value)
-    
+
     def plot_many(self, tag_value_dict, main_tag="metrics"):
         """Plot multiple values with a common main tag."""
         self.add_scalars(main_tag, tag_value_dict)
@@ -129,7 +101,7 @@ class TensorBoardLogger:
     
     def export_loss_curves(self, filename=None):
         """Export loss curves as JPG images with epochs on the x-axis."""
-        if not self.epoch_loss_history:
+        if not self.loss_history:
             return None
         
         if filename is None:
@@ -140,14 +112,14 @@ class TensorBoardLogger:
         save_path = os.path.join(self.loss_export_dir, filename)
         
         # Create subplots based on number of loss categories
-        num_losses = len(self.epoch_loss_history)
+        num_losses = len(self.loss_history)
         fig, axes = plt.subplots(num_losses, 1, figsize=(10, 3 * num_losses))
         
         if num_losses == 1:
             axes = [axes]  # Make it iterable for single subplot
         
         # Plot each loss curve
-        for ax, (loss_name, history) in zip(axes, self.epoch_loss_history.items()):
+        for ax, (loss_name, history) in zip(axes, self.loss_history.items()):
             epochs, values = zip(*history) if history else ([], [])
             ax.plot(epochs, values)
             ax.set_title(loss_name)
@@ -167,6 +139,7 @@ class TensorBoardLogger:
         print(f"Loss curves exported to {save_path}")
         return save_path
     
+
     def close(self):
         """Close the TensorBoard writer."""
         self.writer.close()
