@@ -1,7 +1,12 @@
 import torch
-import os
+from torch.optim import Optimizer
+from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import LRScheduler
 import tqdm
 from tools.tensorboard_logger import TensorBoardLogger
+from tools.checkpointer import Checkpointer
+from training.loss import Loss
+
 class Trainer():
     """
     Trainer class for training models with various configurations.
@@ -13,28 +18,30 @@ class Trainer():
         device (torch.device): The device to run the training on.
         config (Config): Configuration object containing training parameters.
     """
-    
-    def __init__(self, model, optimizer, scheduler, criterion, device, config,
-                 train_loader, val_loader, log_dir, epoch_goal=10, epoch_trained=0, global_step=0):
+
+    def __init__(self, model, optimizer:Optimizer,  criterions:list[Loss],
+                 train_loader:DataLoader, val_loader:DataLoader, epoch_goal, epoch_trained,
+                 log_dir:str, loss_exp_dir:str=None, scheduler:LRScheduler=None, device='cpu',
+                 ):
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
-        self.criterion = criterion
+        self.criterions = criterions
         self.device = device
-        self.logger = TensorBoardLogger(log_dir=log_dir)
-        self.config = config
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.epoch_goal = epoch_goal
         self.epoch_trained = epoch_trained
+        self.logger = TensorBoardLogger(log_dir=log_dir, loss_exp_dir=loss_exp_dir)
+        
     def train(self):
         """
         Train the model using the provided data loaders.
         """
         try:
             for epoch in range(self.epoch_trained, self.epoch_goal):
-                self.logger.set_epoch(epoch)
-                print(f"Epoch {epoch}/{self.epoch_goal}")
+                self.logger.set_epoch(epoch+1)
+                print(f"Epoch {epoch+1}/{self.epoch_goal}")
                 # Training round
                 with tqdm.tqdm(self.train_loader, desc='Training') as pbar:
                     epoch_loss_train = 0
@@ -50,6 +57,7 @@ class Trainer():
                         pbar.set_postfix({'loss (batch)': batch_loss.item()})
                         pbar.update(1)
                     pbar.set_postfix({'loss (epoch)': epoch_loss_train / len(self.train_loader)})
+                    log_epoch_loss_train = self._avg_dict(log_epoch_loss_train, len(self.train_loader))
                     self.logger.log_dict(log_epoch_loss_train, 'train')
                     pbar.close()
                 # Validation round
@@ -67,10 +75,13 @@ class Trainer():
                     self.logger.log_dict(log_epoch_loss_val, 'val')
                 pbar.set_postfix({'loss (epoch)': epoch_loss_val / len(self.val_loader)})
                 pbar.close()
-        except KeyboardInterrupt:
-            pass
-        finally:
+                
             print(f"Training complete.")
+            
+        except KeyboardInterrupt:
+            print("Training stopped by user.")
+        finally:
+            
             print(f"training loss curves save to: {self.logger.export_loss_curves()}")
 
     def _train_batch(self, data, target):
@@ -92,7 +103,8 @@ class Trainer():
             print(f"Warning: Very small gradients! Norm: {total_grad_norm}")
         
         self.optimizer.step()
-        self.scheduler.step()
+        if self.scheduler is not None:
+            self.scheduler.step()
         return batch_loss, log_loss
 
     def _val_batch(self, data, target):
@@ -109,7 +121,11 @@ class Trainer():
         Sample loss calculation function.
         To be implemented by trainer subclass.
         '''
-        loss = self.criterion(output, target)
+        for criterion in self.criterions:
+            if isinstance(criterion, Loss):
+                loss = criterion(output, target)
+            else:
+                loss = criterion(output, target)
         log_loss = {
             'bce_loss': loss.item(),
             'loss_test1': 1,
@@ -121,7 +137,8 @@ class Trainer():
     def _add_dict(self, dict1, dict2):
         return {k: dict1.get(k, 0) + dict2.get(k, 0) for k in set(dict1) | set(dict2)}
 
-
+    def _avg_dict(self, dict1, n):
+        return {k: v / n for k, v in dict1.items()}
 if __name__ == "__main__":
     # Example usage
     from torch import nn, optim
