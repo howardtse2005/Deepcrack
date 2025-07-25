@@ -19,7 +19,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 test_img_path = 'data/july2025_imgs/img_raw_ts'
 test_mask_path = 'data/july2025_imgs/masks_raw_ts'
-checkpoint_path = 'checkpoints/hnet6_july.pth'
+checkpoint_path = 'checkpoints/hnet3_july.pth'
 
 #--------------------- Benchmark Metric Calculation Functions ---------------------
 
