@@ -89,6 +89,8 @@ def calculate_confusion_matrix(prediction, ground_truth, threshold=0.5):
     fp = np.sum((pred_binary == 1) & (gt_binary == 0))
     fn = np.sum((pred_binary == 0) & (gt_binary == 1))
 
+    return {'TP': int(tp), 'TN': int(tn), 'FP': int(fp), 'FN': int(fn)}
+
 # Calculate thresold-based metrics
 def calculate_metrics(predictions, groundtruths, threshold=0.5):
     """
