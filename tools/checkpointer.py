@@ -1,9 +1,11 @@
 import time
-import os
+import os, shutil
 from os import path
 import torch
 from tools.paths import process
 from queue import Queue
+from config import Config
+
 
 
 class Checkpointer(object):
@@ -24,10 +26,10 @@ class Checkpointer(object):
     """
 
     def __init__(self, name, directory='.', overwrite=False, verbose=True, timestamp=False, add_count=True,
-                 max_queue=None):
+                 max_queue=None, config:bool=True):
         self.name = name
         self.directory = process(directory, create=True)
-        self.directory = path.join(self.directory, 'checkpoints')
+        self.directory = path.join(self.directory, f'{self.name}_{time.strftime("%Y%m%d%-H%M%S")}')
         self.directory = process(self.directory, create=True)
         self.overwrite = overwrite
         self.timestamp = timestamp
@@ -36,14 +38,24 @@ class Checkpointer(object):
         self.chkp = path.join(self.directory, ".{0}.chkp".format(self.name))
         self.counter, self.filename = torch.load(self.chkp) if path.exists(self.chkp) else (0, '')
         self.save_queue = False
+        self.epoch = 0
 
         if overwrite == False and isinstance(max_queue, int) and max_queue > 1:
             self.save_queue = True
             self._queue = Queue(max_queue)
         elif max_queue is not None:
             print('WARNING: illegal max_queue Value!.')
+            
+        # copy the config file to the current training checkpoint directory
+        if config:
+            if os.path.exists('config.py'):
+                dest_path = os.path.join(self.directory, 'config.py')
+                shutil.copy2('config.py', dest_path)
+            else:
+                print("Warning: config.py not found, skipping config copy.")
 
-        self.show_save_pth_name = ''
+    def set_epoch(self, epoch):
+        self.epoch = epoch
 
     def _say(self, line):
         if self.verbose:
@@ -54,9 +66,9 @@ class Checkpointer(object):
         if tag is not None:
             strend += '_' + str(tag)
         if self.add_count:
-            strend += "_{:07d}".format(self.counter)
+            strend += "_{0}".format(self.counter)
         if self.timestamp:
-            strend += time.strftime("_%Y-%m-%d-%H-%M-%S")
+            strend += time.strftime("_%Y%m%d-%H%M%S")
         filename = "{0}{1}.pth".format(self.name, strend)
         self.filename = path.join(self.directory, filename)
         return self.filename
@@ -115,10 +127,8 @@ class Checkpointer(object):
                 pass
 
         torch.save(self._get_state(obj), new_filename, *args, **kwargs)
-        torch.save((self.counter, new_filename), self.chkp)
-
-        self.show_save_pth_name = new_filename
-
+        self._say("Saved checkpoint: {0}".format(new_filename))
+        
     def load(self, obj=None, preprocess=None, multi_gpu=False, *args, **kwargs):
         """Loads a checkpoint from disk.
 

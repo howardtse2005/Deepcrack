@@ -23,17 +23,16 @@ class BCEWithLogitsLoss(Loss):
     def forward(self, outputs, targets):
         #input logits
         
+        if outputs.dim() != 4 or (targets.dim() != 3 and targets.dim() != 4):
+            raise ValueError(f"Outputs must be 4D (B, C, H, W) and targets must be 3D (B, H, W) or 4D (B, C, H, W), got outputs: {outputs.dim()} and targets: {targets.dim()} dimensions.")
+       
         # makesure targets are 4D tensors
         if targets.dim() == 3:
             targets = targets.unsqueeze(1)
-        elif targets.dim() == 4 and targets.shape[1] != 1:
-            raise ValueError(f"Target tensor must have 1 channel for BCEWithLogitsLoss, got {targets.shape[1]} channels.")
-
+        
         # makesure outputs and targets follow (B, C, H, W) shape
-        if outputs.dim() != targets.dim():
-            raise ValueError(f"Outputs and targets must have the same number of dimensions. got outputs: {outputs.dim()} and targets: {targets.dim()} dimensions.")
-        if outputs.shape[1] != targets.shape[1]:
-            raise ValueError(f"Outputs and targets must have the same number of channels. got outputs: {outputs.shape[1]} and targets: {targets.shape[1]} channels.")
+        if outputs.shape != targets.shape:
+            raise ValueError(f"Outputs and targets must have the same shape. got outputs: {outputs.shape} and targets: {targets.shape}.")
         
         loss = self.criterion(outputs, targets)
         return loss
@@ -47,17 +46,17 @@ class FocalWithLogitsLoss(Loss):
 
     def forward(self, outputs, targets):
         # makesure targets are 4D tensors
+        if outputs.dim() != 4 or (targets.dim() != 3 and targets.dim() != 4):
+            raise ValueError(f"Outputs must be 4D (B, C, H, W) and targets must be 3D (B, H, W) or 4D (B, C, H, W), got outputs: {outputs.dim()} and targets: {targets.dim()} dimensions.")
+       
+        # makesure targets are 4D tensors
         if targets.dim() == 3:
             targets = targets.unsqueeze(1)
-        elif targets.dim() == 4 and targets.shape[1] != 1:
-            raise ValueError(f"Target tensor must have 1 channel for FocalLoss, got {targets.shape[1]} channels.")
-
+        
         # makesure outputs and targets follow (B, C, H, W) shape
-        if outputs.dim() != targets.dim():
-            raise ValueError(f"Outputs and targets must have the same number of dimensions. got outputs: {outputs.dim()} and targets: {targets.dim()} dimensions.")
-        if outputs.shape[1] != targets.shape[1]:
-            raise ValueError(f"Outputs and targets must have the same number of channels. got outputs: {outputs.shape[1]} and targets: {targets.shape[1]} channels.")
-    
+        if outputs.shape != targets.shape:
+            raise ValueError(f"Outputs and targets must have the same shape. got outputs: {outputs.shape} and targets: {targets.shape}.")
+        
         # For binary classification with logits
         if targets.shape[1] == 1:
             # Convert logits to probabilities
@@ -101,18 +100,17 @@ class DiceWithLogitsLoss(Loss):
     def forward(self, outputs: torch.Tensor, targets: torch.Tensor):
         # input logits
         
+        if outputs.dim() != 4 or (targets.dim() != 3 and targets.dim() != 4):
+            raise ValueError(f"Outputs must be 4D (B, C, H, W) and targets must be 3D (B, H, W) or 4D (B, C, H, W), got outputs: {outputs.dim()} and targets: {targets.dim()} dimensions.")
+       
         # makesure targets are 4D tensors
         if targets.dim() == 3:
             targets = targets.unsqueeze(1)
-        elif targets.dim() == 4 and targets.shape[1] != 1:
-            raise ValueError(f"Target tensor must have 1 channel for BCEWithLogitsLoss, got {targets.shape[1]} channels.")
         
         # makesure outputs and targets follow (B, C, H, W) shape
-        if outputs.dim() != targets.dim():
-            raise ValueError(f"Outputs and targets must have the same number of dimensions. got outputs: {outputs.dim()} and targets: {targets.dim()} dimensions.")
-        if outputs.shape[1] != targets.shape[1]:
-            raise ValueError(f"Outputs and targets must have the same number of channels. got outputs: {outputs.shape[1]} and targets: {targets.shape[1]} channels.")
-
+        if outputs.shape != targets.shape:
+            raise ValueError(f"Outputs and targets must have the same shape. got outputs: {outputs.shape} and targets: {targets.shape}.")
+        
         if targets.shape[1] == 1:  # Binary classification (single channel)
             outputs = torch.sigmoid(outputs)
             intersection = (outputs * targets).sum(dim=(2, 3))

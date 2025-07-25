@@ -9,8 +9,8 @@ class UNetTrainer(Trainer):
     Inherits from the base Trainer class.
     """
     
-    def __init__(self, model, config, optimizer, criterions, train_loader, val_loader, 
-                 log_dir, scheduler=None, device='cpu', epoch_goal=10, epoch_trained=0):
+    def __init__(self, model, optimizer, criterions, train_loader, val_loader, 
+                 log_dir, chkp_dir, scheduler=None, device='cpu', epoch_goal=10, epoch_trained=0):
         """
         Initialize UNetTrainer with same parameters as parent Trainer class.
         
@@ -29,16 +29,16 @@ class UNetTrainer(Trainer):
         """
         super().__init__(
             model=model,
-            config=config,
+            name='unet',
             optimizer=optimizer,
             criterions=criterions,
             train_loader=train_loader,
             val_loader=val_loader,
             log_dir=log_dir,
+            chkp_dir=chkp_dir,
             scheduler=scheduler,
             device=device,
             epoch_goal=epoch_goal,
-            epoch_trained=epoch_trained
         )
 
     def _calculate_loss(self, output, target):

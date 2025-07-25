@@ -10,20 +10,16 @@ from training.loss import Loss
 class Trainer():
     """
     Trainer class for training models with various configurations.
-    
-    Attributes:
-        model (nn.Module): The model to be trained.
-        optimizer (torch.optim.Optimizer): The optimizer for training.
-        criterion (callable): The loss function.
-        device (torch.device): The device to run the training on.
-        config (Config): Configuration object containing training parameters.
+
     """
 
-    def __init__(self, model, optimizer:Optimizer,  criterions:list[Loss],
-                 train_loader:DataLoader, val_loader:DataLoader, epoch_goal, epoch_trained,
-                 log_dir:str, loss_exp_dir:str=None, scheduler:LRScheduler=None, device='cpu',
+    def __init__(self, model, name:str, optimizer:Optimizer,  criterions:list[Loss],
+                 train_loader:DataLoader, val_loader:DataLoader, epoch_goal, 
+                 log_dir:str, chkp_dir:str, scheduler:LRScheduler=None, device='cpu',
+                 save_chkp_every:int=1
                  ):
         self.model = model
+        self.name = name
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.criterions = criterions
@@ -31,17 +27,20 @@ class Trainer():
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.epoch_goal = epoch_goal
-        self.epoch_trained = epoch_trained
-        self.logger = TensorBoardLogger(log_dir=log_dir, loss_exp_dir=loss_exp_dir)
+        self.logger = TensorBoardLogger(log_dir=log_dir)
+        self.checkpointer = Checkpointer(name=name, directory=chkp_dir, verbose=True, timestamp=False)
+        self.save_chkp_every = save_chkp_every
         
     def train(self):
         """
         Train the model using the provided data loaders.
         """
         try:
-            for epoch in range(self.epoch_trained, self.epoch_goal):
+            for epoch in range(self.epoch_goal):
                 self.logger.set_epoch(epoch+1)
+                self.checkpointer.set_epoch(epoch+1)
                 print(f"Epoch {epoch+1}/{self.epoch_goal}")
+                
                 # Training round
                 with tqdm.tqdm(self.train_loader, desc='Training') as pbar:
                     epoch_loss_train = 0
@@ -60,6 +59,7 @@ class Trainer():
                     log_epoch_loss_train = self._avg_dict(log_epoch_loss_train, len(self.train_loader))
                     self.logger.log_dict(log_epoch_loss_train, 'train')
                     pbar.close()
+                    
                 # Validation round
                 with tqdm.tqdm(self.val_loader, desc='Validation') as pbar:
                     epoch_loss_val = 0
@@ -76,13 +76,17 @@ class Trainer():
                 pbar.set_postfix({'loss (epoch)': epoch_loss_val / len(self.val_loader)})
                 pbar.close()
                 
+                if epoch % self.save_chkp_every == 0:
+                    self.checkpointer(self.model)
             print(f"Training complete.")
             
         except KeyboardInterrupt:
             print("Training stopped by user.")
-        finally:
+            print("Saving model state...")
+            self.checkpointer(self.model)
             
-            print(f"training loss curves save to: {self.logger.export_loss_curves()}")
+        finally:
+            print(f"Training loss curves saved to: {self.logger.export_loss_curves()}")
 
     def _train_batch(self, data, target):
         self.model.train()
