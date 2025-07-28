@@ -5,7 +5,8 @@ from model.hnet import HNet
 from model.unet import UNet 
 from model.attention_unet import AttentionUNet
 from model.segformer import SegFormer 
-from trainer import DeepCrackTrainer, UNetTrainer
+from training.trainer_deepcrack import DeepCrackTrainer
+from training.trainer_unet import UNetTrainer
 import cv2
 from tqdm import tqdm
 import numpy as np
@@ -17,9 +18,9 @@ import torch.nn.functional as F
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
-test_img_path = 'data/july2025_imgs/img_raw_ts'
-test_mask_path = 'data/july2025_imgs/masks_raw_ts'
-checkpoint_path = 'checkpoints/hnet3_july.pth'
+test_img_path = 'data/img_debug_val'
+test_mask_path = 'data/mask_debug_val'
+checkpoint_path = 'hnet.pth'
 
 #--------------------- Benchmark Metric Calculation Functions ---------------------
 
@@ -468,13 +469,29 @@ def test(test_data_path='data/test_example.txt',
     model.to(device)
     
     if cfg.model_type in ['hnet', 'unet', 'attention_unet', 'segformer']:
-        trainer = UNetTrainer(model).to(device)
+        trainer = UNetTrainer(
+            model=model,
+            optimizer=None,  
+            criterions=None,
+            train_loader=None,
+            val_loader=None,
+            log_dir='',  
+            chkp_dir=''
+            ).to(device)
         print("Using UNetTrainer (single output)")
     else:
-        trainer = DeepCrackTrainer(model).to(device)
+        trainer = DeepCrackTrainer(
+            model,
+            optimizer=None,
+            criterions=None,
+            train_loader=None,
+            val_loader=None,
+            log_dir='',
+            chkp_dir=''
+            ).to(device)
         print("Using DeepCrackTrainer (multi-output)")
 
-    model.load_state_dict(trainer.saver.load(pretrained_model, multi_gpu=True))
+    model.load_state_dict(trainer.checkpointer.load(pretrained_model, multi_gpu=True))
     model.eval()
     
     # Initialize sliding window crop inference
