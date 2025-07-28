@@ -109,15 +109,15 @@ class CrackDataset(Dataset):
     
    
 # if __name__ == "__main__":
-#     # Example usage
+#     # Functionality Test
 #     transforms = [
 #         pp.Crop(range_crop_len=(200, 1000), n_copy=10),
 #         pp.Resize(target_size=(448, 448))
 #     ]
 
 #     dataset = CrackDataset(
-#         dataset_img_path="img_debug",
-#         dataset_mask_path="mask_debug",
+#         dataset_img_path="data/img_debug_tr",
+#         dataset_mask_path="data/mask_debug_tr",
 #         augmentations=transforms
 #     )
 
@@ -126,10 +126,13 @@ class CrackDataset(Dataset):
 #         img, mask = dataset[i]
 #         print(f"Image {i} shape: {img.shape}, Mask {i} shape: {mask.shape}")
 
+#         img = img.permute(1, 2, 0).numpy()  # Convert to HWC format for visualization
+#         img = (img * 255).astype(np.uint8)  # Convert to uint
+#         mask = (mask * 255).numpy().astype(np.uint8)
 #         # Convert mask to 3-channel for concatenation with image
 #         mask_3ch = np.expand_dims(mask, axis=2)  # Add channel dimension
 #         mask_3ch = np.repeat(mask_3ch, 3, axis=2)  # Repeat to get 3 channels
-#         mask_3ch = mask_3ch * 255  # Scale to 0-255 for visibility
+#         mask_3ch = mask_3ch  # Scale to 0-255 for visibility
 
 #         # Concatenate image and mask horizontally
 #         out = np.concatenate((img,mask_3ch), axis=1)

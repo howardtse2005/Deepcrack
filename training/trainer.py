@@ -1,4 +1,5 @@
 import torch
+from torch import nn
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import LRScheduler
@@ -7,7 +8,7 @@ from tools.tensorboard_logger import TensorBoardLogger
 from tools.checkpointer import Checkpointer
 from training.loss import Loss
 
-class Trainer():
+class Trainer(nn.Module):
     """
     Trainer class for training models with various configurations.
 
@@ -16,10 +17,11 @@ class Trainer():
     """
 
     def __init__(self, model, name:str, optimizer:Optimizer,  criterions:list[Loss],
-                 train_loader:DataLoader, val_loader:DataLoader, epoch_goal, 
-                 log_dir:str, chkp_dir:str, scheduler:LRScheduler=None, device='cpu',
+                 train_loader:DataLoader, val_loader:DataLoader,  log_dir:str, chkp_dir:str,
+                 epoch_goal=100,scheduler:LRScheduler=None, device='cpu',
                  save_chkp_every:int=1
                  ):
+        super().__init__()
         self.model = model
         self.name = name
         self.optimizer = optimizer
@@ -29,7 +31,7 @@ class Trainer():
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.epoch_goal = epoch_goal
-        self.logger = TensorBoardLogger(log_dir=log_dir)
+        self.logger = TensorBoardLogger(log_dir=log_dir, exp_name=name)
         self.checkpointer = Checkpointer(name=name, directory=chkp_dir, verbose=True, timestamp=False)
         self.save_chkp_every = save_chkp_every
         
@@ -54,8 +56,7 @@ class Trainer():
                         log_epoch_loss_train = self._add_dict(log_epoch_loss_train, log_loss)
                         epoch_loss_train += batch_loss.item()
                         
-                        if self.scheduler is not None:
-                            self.scheduler.step()
+
                         # update progress bar
                         pbar.set_postfix({'loss (batch)': batch_loss.item()})
                         pbar.update(1)
@@ -77,6 +78,8 @@ class Trainer():
                         pbar.set_postfix({'loss (batch)': batch_loss.item()})
                         pbar.update(1)
                     self.logger.log_dict(log_epoch_loss_val, 'val')
+                    if self.scheduler is not None:
+                        self.scheduler.step(epoch_loss_val / len(self.val_loader))
                 pbar.set_postfix({'loss (epoch)': epoch_loss_val / len(self.val_loader)})
                 pbar.close()
                 

@@ -10,7 +10,7 @@ class DeepCrackTrainer(Trainer):
     """
     
     def __init__(self, model, optimizer, criterions, train_loader, val_loader, 
-                 log_dir, chkp_dir, scheduler=None, device='cpu', epoch_goal=10, epoch_trained=0):
+                 log_dir, chkp_dir, scheduler=None, device='cpu', epoch_goal=10):
         """
         Initialize DeepCrackTrainer with same parameters as parent Trainer class.
         

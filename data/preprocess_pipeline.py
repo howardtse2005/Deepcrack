@@ -21,7 +21,7 @@ class Augmentation:
                 
                 In Second sceneario,
                 if the first module use_raw=True and second to use_raw=False, the total output after 1st module will be 1000(10 * 100)
-                the total output after the 2nd module will be 100000 (1000 * 100). So there will be 1000 by the end
+                the total output after the 2nd module will be 100000 (1000 * 100)
         '''
         self.name = name
         self.n_copy = n_copy
