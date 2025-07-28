@@ -1,7 +1,7 @@
 from data.dataset import CrackDataset
 import data.preprocess_pipeline as pp
-from training.unet_trainer import UNetTrainer
-from training.deepcrack_trainer import DeepCrackTrainer
+from training.trainer_unet import UNetTrainer
+from training.trainer_deepcrack import DeepCrackTrainer
 from training.loss import FocalWithLogitsLoss, DiceWithLogitsLoss, BCEWithLogitsLoss
 from model.unet import UNet
 from model.deepcrack import DeepCrack
