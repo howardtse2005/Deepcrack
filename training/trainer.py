@@ -11,6 +11,8 @@ class Trainer():
     """
     Trainer class for training models with various configurations.
 
+    REMARK:
+    optimizer steps every batch, scheduler steps every epoch.
     """
 
     def __init__(self, model, name:str, optimizer:Optimizer,  criterions:list[Loss],
@@ -52,6 +54,8 @@ class Trainer():
                         log_epoch_loss_train = self._add_dict(log_epoch_loss_train, log_loss)
                         epoch_loss_train += batch_loss.item()
                         
+                        if self.scheduler is not None:
+                            self.scheduler.step()
                         # update progress bar
                         pbar.set_postfix({'loss (batch)': batch_loss.item()})
                         pbar.update(1)
@@ -107,8 +111,6 @@ class Trainer():
             print(f"Warning: Very small gradients! Norm: {total_grad_norm}")
         
         self.optimizer.step()
-        if self.scheduler is not None:
-            self.scheduler.step()
         return batch_loss, log_loss
 
     def _val_batch(self, data, target):

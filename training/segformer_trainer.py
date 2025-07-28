@@ -3,22 +3,22 @@ import torch
 import numpy as np
 from training.loss import Loss
 
-class HNetTrainer(Trainer):
+class SegFormerTrainer(Trainer):
     """
-    Trainer class for HNet model.
+    Trainer class for SegFormer model.
     Inherits from the base Trainer class.
     """
     
     def __init__(self, model, optimizer, criterions, train_loader, val_loader, 
                  log_dir, chkp_dir, scheduler=None, device='cpu', epoch_goal=10):
         """
-        Initialize UNetTrainer with same parameters as parent Trainer class.
-        
+        Initialize SegFormerTrainer with same parameters as parent Trainer class.
+
         Args:
-            model: HNet model to be trained
+            model: SegFormer model to be trained
             config: Configuration object containing training parameters
             optimizer: Optimizer for training
-            criterions: List of loss function classes
+            criterions: List of loss functions
             train_loader: Training data loader
             val_loader: Validation data loader
             log_dir: Directory for logging
@@ -28,7 +28,7 @@ class HNetTrainer(Trainer):
         """
         super().__init__(
             model=model,
-            name='hnet',
+            name='segformer',
             optimizer=optimizer,
             criterions=criterions,
             train_loader=train_loader,
@@ -42,7 +42,7 @@ class HNetTrainer(Trainer):
 
     def _calculate_loss(self, output, target):
         """
-        Calculate loss for HNet model.
+        Calculate loss for SegFormer model.
         """
         loss = torch.tensor(0.0, device=self.device, requires_grad=True)
         log_loss = {}
