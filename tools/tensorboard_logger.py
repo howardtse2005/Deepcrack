@@ -7,7 +7,7 @@ from datetime import datetime
 
 
 class TensorBoardLogger:
-    def __init__(self, log_dir='runs', exp_name=None):
+    def __init__(self, log_dir='runs', exp_name=''):
         """
         TensorBoard Logger to replace Visdom
         
@@ -15,10 +15,10 @@ class TensorBoardLogger:
             log_dir: Base directory for TensorBoard logs
             exp_name: Experiment name; if None, uses current timestamp
         """
-        if exp_name is None:
-            exp_name = datetime.now().strftime('%Y%m%d_%H%M%S')
-        
-        self.log_dir = os.path.join(log_dir, exp_name)
+
+        self.exp_name = exp_name + '_' + datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        self.log_dir = os.path.join(log_dir, self.exp_name)
         self.writer = SummaryWriter(log_dir=self.log_dir)
         self.epoch = 0
         self.loss_history = {}  # Store loss history by epoch
@@ -105,9 +105,9 @@ class TensorBoardLogger:
             return None
         
         if filename is None:
-            filename = f'loss_curves_{datetime.now().strftime("%Y%m%d_%H%M%S")}.jpg'
+            filename = f'{self.exp_name}.jpg'
         else:
-            filename = f'loss_curves_{filename}.jpg'
+            filename = f'{filename}.jpg'
         
         save_path = os.path.join(self.loss_export_dir, filename)
         
