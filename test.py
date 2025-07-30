@@ -23,7 +23,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 test_img_path = cfg.dir_img_test
 test_mask_path = cfg.dir_mask_test
-checkpoint_path = cfg.checkpoint_path
+checkpoint_path = cfg.pretrained_model
 
 
 #--------------------- Main Test Function ---------------------

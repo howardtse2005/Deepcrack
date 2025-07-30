@@ -10,15 +10,15 @@ class Config:
     setproctitle.setproctitle("%s" % name)
 
     #<---------- Paths and Directories ----------->#
-    dir_img_tr = 'data/img_debug_tr'
-    dir_mask_tr = 'data/mask_debug_tr'
-    dir_img_val = 'data/img_debug_val'
-    dir_mask_val = 'data/mask_debug_val'
+    dir_img_tr = 'data/july2025_imgs/crop_img_tr'
+    dir_mask_tr = 'data/july2025_imgs/crop_msk_tr'
+    dir_img_val = 'data/july2025_imgs/crop_img_val'
+    dir_mask_val = 'data/july2025_imgs/crop_msk_val'
     dir_img_test = 'data/july2025_imgs/img_raw_ts'
     dir_mask_test = 'data/july2025_imgs/masks_raw_ts'
-    checkpoint_path = 'checkpoints/hnet3_july.pth'
+    checkpoint_path = 'checkpoints/' # Checkpoint path for training
     log_path = 'log'
-    pretrained_model = ''  # Path to the pretrained model
+    pretrained_model = 'checkpoints/hnet3_july.pth'  # Checkpoint path for testing
     #<-------------------------------------------->#
     
     
@@ -37,17 +37,17 @@ class Config:
     min_size = 448   # Minimum size for images
     
     num_crops_with_cracks = 10  # Number of crops that should contain cracks
-    train_random_crop = True # Bool to state wheteher we want to perform random cropping for training or not
-    val_random_crop = True # Bool to state wheteher we want to perform random cropping for validation or not
+    train_random_crop = False # Bool to state wheteher we want to perform random cropping for training or not
+    val_random_crop = False # Bool to state wheteher we want to perform random cropping for validation or not
     #<-------------------------------------------->#
     
     
     #<---------- Training Settings ----------->#
     epoch = 100
     lr = 1e-4
-    train_batch_size = 2
-    val_batch_size = 2
-    test_batch_size = 2
+    train_batch_size = 4
+    val_batch_size = 4
+    test_batch_size = 4
     
     val_every = 1 # legacy parameter for old train.py
     use_focal_loss = True  # legacy parameter for old train.py to use focal loss or not

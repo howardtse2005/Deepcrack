@@ -1,14 +1,26 @@
-from config import Config as cfg
 import torch
+import torch.optim as optim
+from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-#<---------Initialize model ------------>
+import data.preprocess_pipeline as pp
+from data.dataset import CrackDataset
+from config import Config as cfg
 from model.attention_unet import AttentionUNet
 from model.segformer import SegFormer
 from model.hnet import HNet
 from model.deepcrack import DeepCrack
 from model.unet import UNet
+from training.loss import FocalWithLogitsLoss, DiceWithLogitsLoss, BCEWithLogitsLoss
+from training.trainer_deepcrack import DeepCrackTrainer
+from training.trainer_unet import UNetTrainer
+from training.trainer_hnet import HNetTrainer
+from training.trainer_segformer import SegFormerTrainer
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+#<---------Initialize model ------------>
 if cfg.model_type == 'deepcrack':
     model = DeepCrack()
 elif cfg.model_type == 'unet':
@@ -24,7 +36,6 @@ else:
 model.to(device)
 
 #<---------Initialize optimizer ------------>
-import torch.optim as optim
 if cfg.optimizer == 'adam':
     optimizer = optim.Adam(model.parameters(), **cfg.adam_params)
 elif cfg.optimizer == 'sgd':
@@ -35,9 +46,6 @@ else:
     raise ValueError(f"Unknown optimizer type: {cfg.optimizer}")
     
 #<---------Initialize scheduler ------------>
-from torch.optim.lr_scheduler import StepLR
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.optim.lr_scheduler import CosineAnnealingLR
 scheduler = None
 if cfg.scheduler == 'step':
     scheduler = StepLR(optimizer, **cfg.step_params)
@@ -51,7 +59,6 @@ else:
     raise ValueError(f"Unknown scheduler type: {cfg.scheduler}")
 
 #<---------Initialize loss functions ------------>
-from training.loss import FocalWithLogitsLoss, DiceWithLogitsLoss, BCEWithLogitsLoss
 criterions = []
 if 'focal' in cfg.criterions:
     criterions.append(FocalWithLogitsLoss(**cfg.focal_params))
@@ -61,9 +68,6 @@ if 'bce' in cfg.criterions:
     criterions.append(BCEWithLogitsLoss(**cfg.bce_params))
 
 #<---------Initialize data loaders ------------>
-from data.dataset import CrackDataset
-import data.preprocess_pipeline as pp
-
 augmentations_train = []
 if cfg.train_random_crop:
     augmentations_train.append(pp.Crop(range_crop_len=cfg.crop_range,
@@ -97,10 +101,6 @@ train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=cfg.train_b
 val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=cfg.val_batch_size, shuffle=False, num_workers=1)
 
 #<---------Initialize trainer ------------>
-from training.trainer_deepcrack import DeepCrackTrainer
-from training.trainer_unet import UNetTrainer
-from training.trainer_hnet import HNetTrainer
-from training.trainer_segformer import SegFormerTrainer
 trainer_params = {
     'model': model,
     'optimizer': optimizer,

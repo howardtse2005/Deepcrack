@@ -11,8 +11,7 @@
 /results/images/*
 /results/eval/*
 /results/loss/*
-/checkpoints/*.pth
-/checkpoints/DeepCrack_CT260_FT1/checkpoints/*
+/checkpoints/*
 /july2025_imgs/
 /runs
 *.png

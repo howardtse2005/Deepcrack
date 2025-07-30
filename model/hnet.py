@@ -331,7 +331,7 @@ class HNet(nn.Module):
         
         # Coarse stream: 2x downsampling with large kernel for initial context
         self.coarse_inc = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3),  # Learnable 2x downsample input
+            nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1),  # Learnable 2x downsample input
             nn.BatchNorm2d(64),
             nn.ReLU(),
             ConvNxN(64, 64, kernel_size=3),
@@ -346,10 +346,10 @@ class HNet(nn.Module):
         self.fine_enc4 = Down(512, 1024, kernel_size=3) # Deep features
         
         # Coarse-scale encoder with gradual dilation increase and stride=2 downsampling
-        self.coarse_enc1 = CoarseDown(64, 128, kernel_size=5, dilation=1)   # Standard dilation at shallow level
-        self.coarse_enc2 = CoarseDown(128, 256, kernel_size=5, dilation=2)  # Start expanding receptive field
-        self.coarse_enc3 = CoarseDown(256, 512, kernel_size=5, dilation=4)  # Larger context capture
-        self.coarse_enc4 = CoarseDown(512, 1024, kernel_size=5, dilation=8) # Maximum context understanding
+        self.coarse_enc1 = CoarseDown(64, 128, kernel_size=3, dilation=1)   # Standard dilation at shallow level
+        self.coarse_enc2 = CoarseDown(128, 256, kernel_size=3, dilation=2)  # Start expanding receptive field
+        self.coarse_enc3 = CoarseDown(256, 512, kernel_size=3, dilation=4)  # Larger context capture
+        self.coarse_enc4 = CoarseDown(512, 1024, kernel_size=3, dilation=8) # Maximum context understanding
         
         # Bottleneck processing (symmetric design)
         self.fine_bottleneck = nn.Sequential(
