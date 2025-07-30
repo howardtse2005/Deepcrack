@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from benchmark import calculate_accuracy, calculate_f1, calculate_iou
+from testing.benchmark import calculate_accuracy, calculate_f1, calculate_iou
 
 #--------------------- Visualization and Evaluation Functions ---------------------
 

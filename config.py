@@ -14,9 +14,9 @@ class Config:
     dir_mask_tr = 'data/mask_debug_tr'
     dir_img_val = 'data/img_debug_val'
     dir_mask_val = 'data/mask_debug_val'
-    dir_img_test = 'data/img_debug_test'
-    dir_mask_test = 'data/mask_debug_test'
-    checkpoint_path = 'checkpoints'
+    dir_img_test = 'data/july2025_imgs/img_raw_ts'
+    dir_mask_test = 'data/july2025_imgs/masks_raw_ts'
+    checkpoint_path = 'checkpoints/hnet3_july.pth'
     log_path = 'log'
     pretrained_model = ''  # Path to the pretrained model
     #<-------------------------------------------->#
