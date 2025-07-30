@@ -13,6 +13,7 @@
 /results/loss/*
 /checkpoints/*
 /july2025_imgs/
+/log/*
 /runs
 *.png
 *.jpg
