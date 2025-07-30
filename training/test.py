@@ -1,8 +1,10 @@
 from data.dataset import CrackDataset
 import data.preprocess_pipeline as pp
-from training.unet_trainer import UNetTrainer
+from training.trainer_unet import UNetTrainer
+from training.trainer_deepcrack import DeepCrackTrainer
 from training.loss import FocalWithLogitsLoss, DiceWithLogitsLoss, BCEWithLogitsLoss
 from model.unet import UNet
+from model.deepcrack import DeepCrack
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -29,9 +31,9 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
     
     # Initialize model, optimizer, and loss function
-    model = UNet().to('cuda' if torch.cuda.is_available() else 'cpu')
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    model = DeepCrack().to('cuda' if torch.cuda.is_available() else 'cpu')
+    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
 
     # Define loss functions
     criterions = [
@@ -39,7 +41,7 @@ def main():
     ]
     
     # Initialize trainer
-    trainer = UNetTrainer(
+    trainer = DeepCrackTrainer(
         model=model,
         criterions=criterions,
         optimizer=optimizer,
@@ -47,6 +49,7 @@ def main():
         train_loader=train_loader,
         val_loader=val_loader,
         log_dir='test',
+        chkp_dir='checkpoints',
         device='cuda' if torch.cuda.is_available() else 'cpu'
     )
     

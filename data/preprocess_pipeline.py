@@ -14,6 +14,14 @@ class Augmentation:
             n_copy (int): Number of copies to generate for each input image.
             use_raw (bool): If True, the output from the augmentation module will be generated base on raw images.
                 by the end of the pipeline. All raw images would be ditched
+                For example, if the input to an pipeline is 10, with 2 modules using n_copies=100,
+                In first scenario, 
+                set the first module use_raw=True and second to use_raw=True, the total output after 1st module will be 1000(10 * 100) 
+                the total output after the 2nd module will be 2000(1000 + 100*10). So there will be 2000 by the end
+                
+                In Second sceneario,
+                if the first module use_raw=True and second to use_raw=False, the total output after 1st module will be 1000(10 * 100)
+                the total output after the 2nd module will be 100000 (1000 * 100)
         '''
         self.name = name
         self.n_copy = n_copy
