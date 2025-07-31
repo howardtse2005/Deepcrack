@@ -40,11 +40,11 @@ class HNetTrainer(Trainer):
             epoch_goal=epoch_goal,
         )
 
-    def _calculate_loss(self, output, target):
+    def _calculate_loss(self, output, target, requires_grad):
         """
         Calculate loss for HNet model.
         """
-        loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+        loss = torch.tensor(0.0, device=self.device, requires_grad=requires_grad)
         log_loss = {}
         for criterion in self.criterions:
             if isinstance(criterion, Loss):

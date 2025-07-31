@@ -22,7 +22,7 @@ class TensorBoardLogger:
         self.writer = SummaryWriter(log_dir=self.log_dir)
         self.epoch = 0
         self.loss_history = {}  # Store loss history by epoch
-        self.loss_export_dir = 'training_results/loss'
+        self.loss_export_dir = 'results/loss'
         os.makedirs(self.loss_export_dir, exist_ok=True)
         print(f'TensorBoard logs will be saved to {self.log_dir}')
     

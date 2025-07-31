@@ -67,19 +67,20 @@ class Trainer(nn.Module):
                     
                 # Validation round
                 with tqdm.tqdm(self.val_loader, desc='Validation') as pbar:
-                    epoch_loss_val = 0
-                    log_epoch_loss_val = {}
-                    for batch_idx, (data, target) in enumerate(self.val_loader):
+                    with torch.no_grad():
+                        epoch_loss_val = 0
+                        log_epoch_loss_val = {}
+                        for batch_idx, (data, target) in enumerate(self.val_loader):
 
-                        batch_loss, log_loss = self._val_batch(data, target)
-                        log_epoch_loss_val = self._add_dict(log_epoch_loss_val, log_loss)
-                        epoch_loss_val += batch_loss.item()
-                        
-                        pbar.set_postfix({'loss (batch)': batch_loss.item()})
-                        pbar.update(1)
-                    self.logger.log_dict(log_epoch_loss_val, 'val')
-                    if self.scheduler is not None:
-                        self.scheduler.step(epoch_loss_val / len(self.val_loader))
+                            batch_loss, log_loss = self._val_batch(data, target)
+                            log_epoch_loss_val = self._add_dict(log_epoch_loss_val, log_loss)
+                            epoch_loss_val += batch_loss.item()
+                            
+                            pbar.set_postfix({'loss (batch)': batch_loss.item()})
+                            pbar.update(1)
+                        self.logger.log_dict(log_epoch_loss_val, 'val')
+                        if self.scheduler is not None:
+                            self.scheduler.step(epoch_loss_val / len(self.val_loader))
                 pbar.set_postfix({'loss (epoch)': epoch_loss_val / len(self.val_loader)})
                 pbar.close()
                 
@@ -99,7 +100,7 @@ class Trainer(nn.Module):
         self.model.train()
         data, target = data.to(self.device), target.to(self.device)
         output = self.model(data)
-        batch_loss, log_loss = self._calculate_loss(output, target)
+        batch_loss, log_loss = self._calculate_loss(output, target, requires_grad=True)
         self.optimizer.zero_grad()
         batch_loss.backward()
         
@@ -121,11 +122,11 @@ class Trainer(nn.Module):
         with torch.no_grad():
             data, target = data.to(self.device), target.to(self.device)
             output = self.model(data)
-            batch_loss, log_loss = self._calculate_loss(output, target)
+            batch_loss, log_loss = self._calculate_loss(output, target, requires_grad=False)
         return batch_loss, log_loss
 
 
-    def _calculate_loss(self, output, target):
+    def _calculate_loss(self, output, target, requires_grad):
         '''
         Sample loss calculation function.
         To be implemented by trainer subclass.

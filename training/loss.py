@@ -38,7 +38,7 @@ class BCEWithLogitsLoss(Loss):
         return loss
 
 class FocalWithLogitsLoss(Loss):
-    def __init__(self, alpha=0.5, gamma=3.0,  reduction='mean'):
+    def __init__(self, alpha=0.75, gamma=3.0,  reduction='mean'):
         super().__init__(name="Focal Loss")
         self.alpha = alpha
         self.gamma = gamma

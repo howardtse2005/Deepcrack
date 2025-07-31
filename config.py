@@ -18,7 +18,7 @@ class Config:
     dir_mask_test = 'data/july2025_imgs/masks_raw_ts'
     checkpoint_path = 'checkpoints/' # Checkpoint path for training
     log_path = 'log'
-    pretrained_model = 'checkpoints/hnet3_july.pth'  # Checkpoint path for testing
+    pretrained_model = 'checkpoints/testtesttest.pth'  # Checkpoint path for testing
     #<-------------------------------------------->#
     
     
@@ -44,7 +44,7 @@ class Config:
     
     #<---------- Training Settings ----------->#
     epoch = 100
-    lr = 1e-4
+    lr = 1e-3
     train_batch_size = 4
     val_batch_size = 4
     test_batch_size = 4
@@ -61,8 +61,6 @@ class Config:
     optimizer = 'adam'  # Options: 'adam', 'sgd', 'rmsprop'
     adam_params = {
         'lr': lr,
-        'betas': (0.9, 0.999),
-        'eps': 1e-08,
         'weight_decay': weight_decay
     }
     sgd_params = {
@@ -78,7 +76,7 @@ class Config:
     }
     
     # scheduler settings:
-    scheduler = 'plateau'  # Options: 'step', 'plateau', 'cosine'
+    scheduler = None  # Options: 'step', 'plateau', 'cosine'
     step_params = {
         'step_size': 10,
         'gamma': lr_decay
@@ -100,8 +98,8 @@ class Config:
     ] # Options: 'focal', 'dice', 'bce'
     
     focal_params = {
-        'alpha': 0.25,
-        'gamma': 2.0,
+        'alpha': 0.75,
+        'gamma': 3.0,
         'reduction': 'mean'
     }
     dice_params = {
