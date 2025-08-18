@@ -28,15 +28,20 @@ class Checkpointer(object):
     def __init__(self, name, directory='.', overwrite=False, verbose=True, timestamp=False, add_count=True,
                  max_queue=None, config:bool=True):
         self.name = name
-        self.directory = process(directory, create=True)
-        self.directory = path.join(self.directory, f'{self.name}_{time.strftime("%Y%m%d%-H%M%S")}')
-        self.directory = process(self.directory, create=True)
+        if directory is not None:
+            self.directory = process(directory, create=True)
+            self.directory = path.join(self.directory, f'{self.name}_{time.strftime("%Y%m%d%-H%M%S")}')
+            self.directory = process(self.directory, create=True)
+            self.chkp = path.join(self.directory, ".{0}.chkp".format(self.name))
+            self.counter, self.filename = torch.load(self.chkp) if path.exists(self.chkp) else (0, '')
+        else:
+            self.directory = None
+            self.chkp = None
+            self.counter, self.filename = 0, ''
         self.overwrite = overwrite
         self.timestamp = timestamp
         self.add_count = add_count
         self.verbose = verbose
-        self.chkp = path.join(self.directory, ".{0}.chkp".format(self.name))
-        self.counter, self.filename = torch.load(self.chkp) if path.exists(self.chkp) else (0, '')
         self.save_queue = False
         self.epoch = 0
 
@@ -47,7 +52,7 @@ class Checkpointer(object):
             print('WARNING: illegal max_queue Value!.')
             
         # copy the config file to the current training checkpoint directory
-        if config:
+        if config and self.directory is not None:
             if os.path.exists('config.py'):
                 dest_path = os.path.join(self.directory, 'config.py')
                 shutil.copy2('config.py', dest_path)

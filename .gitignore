@@ -20,3 +20,4 @@
 *.JPG
 *.jpeg
 __pycache__
+*.pth

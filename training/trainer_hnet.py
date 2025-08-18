@@ -48,8 +48,9 @@ class HNetTrainer(Trainer):
         log_loss = {}
         for criterion in self.criterions:
             if isinstance(criterion, Loss):
-                loss = loss + criterion(output, target)
-                log_loss[criterion.name] = loss.item()
-        loss = loss / len(self.criterions)  # Average loss across all criteria
+                criterion_loss = criterion(output, target)  # Store individual loss
+                loss = loss + criterion_loss  # Add to total loss
+                log_loss[criterion.name] = criterion_loss.item()  # Log individual loss
+        
         log_loss['total_loss'] = loss.item()
         return loss, log_loss

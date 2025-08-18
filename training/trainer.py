@@ -7,6 +7,7 @@ import tqdm
 from tools.tensorboard_logger import TensorBoardLogger
 from tools.checkpointer import Checkpointer
 from training.loss import Loss
+import inspect
 
 class Trainer(nn.Module):
     """
@@ -17,7 +18,7 @@ class Trainer(nn.Module):
     """
 
     def __init__(self, model, name:str, optimizer:Optimizer,  criterions:list[Loss],
-                 train_loader:DataLoader, val_loader:DataLoader,  log_dir:str, chkp_dir:str,
+                 train_loader:DataLoader, val_loader:DataLoader,  log_dir:str=None, chkp_dir:str=None,
                  epoch_goal=100,scheduler:LRScheduler=None, device='cpu',
                  save_chkp_every:int=1
                  ):
@@ -31,7 +32,8 @@ class Trainer(nn.Module):
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.epoch_goal = epoch_goal
-        self.logger = TensorBoardLogger(log_dir=log_dir, exp_name=name)
+        if log_dir is not None:
+            self.logger = TensorBoardLogger(log_dir=log_dir, exp_name=name)
         self.checkpointer = Checkpointer(name=name, directory=chkp_dir, verbose=True, timestamp=False)
         self.save_chkp_every = save_chkp_every
         
@@ -46,46 +48,76 @@ class Trainer(nn.Module):
                 print(f"Epoch {epoch+1}/{self.epoch_goal}")
                 
                 # Training round
+                self.model.train()
                 with tqdm.tqdm(self.train_loader, desc='Training') as pbar:
                     epoch_loss_train = 0
                     log_epoch_loss_train = {}
+                    num_train_batches = 0
+                    
                     for batch_idx, (data, target) in enumerate(self.train_loader):
-                                            
-                        # get the result from one training step
+                        data, target = data.to(self.device), target.to(self.device)                    
                         batch_loss, log_loss = self._train_batch(data, target)
+                        
+                        # Accumulate losses properly
                         log_epoch_loss_train = self._add_dict(log_epoch_loss_train, log_loss)
                         epoch_loss_train += batch_loss.item()
-                        
+                        num_train_batches += 1
 
-                        # update progress bar
                         pbar.set_postfix({'loss (batch)': batch_loss.item()})
                         pbar.update(1)
-                    pbar.set_postfix({'loss (epoch)': epoch_loss_train / len(self.train_loader)})
-                    log_epoch_loss_train = self._avg_dict(log_epoch_loss_train, len(self.train_loader))
+                    
+                    # Calculate average losses
+                    avg_train_loss = epoch_loss_train / num_train_batches
+                    log_epoch_loss_train = self._avg_dict(log_epoch_loss_train, num_train_batches)
+                    
+                    pbar.set_postfix({'loss (epoch)': avg_train_loss})
                     self.logger.log_dict(log_epoch_loss_train, 'train')
                     pbar.close()
                     
                 # Validation round
+                self.model.eval()
                 with tqdm.tqdm(self.val_loader, desc='Validation') as pbar:
                     with torch.no_grad():
                         epoch_loss_val = 0
                         log_epoch_loss_val = {}
+                        num_val_batches = 0
+                        
                         for batch_idx, (data, target) in enumerate(self.val_loader):
-
+                            data, target = data.to(self.device), target.to(self.device)
                             batch_loss, log_loss = self._val_batch(data, target)
+                            
                             log_epoch_loss_val = self._add_dict(log_epoch_loss_val, log_loss)
                             epoch_loss_val += batch_loss.item()
+                            if batch_loss.item() > 1:
+                                print(f"Warning: High validation loss {batch_loss.item()} at batch {batch_idx+1}")
+                            num_val_batches += 1
                             
                             pbar.set_postfix({'loss (batch)': batch_loss.item()})
                             pbar.update(1)
+                        
+                        # Calculate average losses
+                        avg_val_loss = epoch_loss_val / num_val_batches
+                        log_epoch_loss_val = self._avg_dict(log_epoch_loss_val, num_val_batches)
+                        
+                        pbar.set_postfix({'loss (epoch)': avg_val_loss})
                         self.logger.log_dict(log_epoch_loss_val, 'val')
+                        
                         if self.scheduler is not None:
-                            self.scheduler.step(epoch_loss_val / len(self.val_loader))
-                pbar.set_postfix({'loss (epoch)': epoch_loss_val / len(self.val_loader)})
-                pbar.close()
+                            sig = inspect.signature(self.scheduler.step)
+                            if 'metrics' in sig.parameters:
+                                self.scheduler.step(avg_val_loss)
+                            else:
+                                self.scheduler.step()
+                    pbar.close()
                 
                 if epoch % self.save_chkp_every == 0:
                     self.checkpointer(self.model)
+                
+                print(f"Training: avg_loss={avg_train_loss:.6f}, batches={num_train_batches}")
+                print(f"Validation: avg_loss={avg_val_loss:.6f}, batches={num_val_batches}")
+                print(f"Training dataset size: {len(self.train_loader.dataset)}")
+                print(f"Validation dataset size: {len(self.val_loader.dataset)}")
+                
             print(f"Training complete.")
             
         except KeyboardInterrupt:
@@ -98,29 +130,16 @@ class Trainer(nn.Module):
 
     def _train_batch(self, data, target):
         self.model.train()
-        data, target = data.to(self.device), target.to(self.device)
+        self.optimizer.zero_grad()
         output = self.model(data)
         batch_loss, log_loss = self._calculate_loss(output, target, requires_grad=True)
-        self.optimizer.zero_grad()
         batch_loss.backward()
-        
-         # Check if gradients are flowing
-        total_grad_norm = 0
-        for param in self.model.parameters():
-            if param.grad is not None:
-                total_grad_norm += param.grad.data.norm(2).item() ** 2
-        total_grad_norm = total_grad_norm ** 0.5
-        
-        if total_grad_norm < 1e-8:
-            print(f"Warning: Very small gradients! Norm: {total_grad_norm}")
-        
         self.optimizer.step()
         return batch_loss, log_loss
 
     def _val_batch(self, data, target):
         self.model.eval()
         with torch.no_grad():
-            data, target = data.to(self.device), target.to(self.device)
             output = self.model(data)
             batch_loss, log_loss = self._calculate_loss(output, target, requires_grad=False)
         return batch_loss, log_loss
@@ -131,6 +150,7 @@ class Trainer(nn.Module):
         Sample loss calculation function.
         To be implemented by trainer subclass.
         '''
+        raise NotImplementedError("This method should be implemented in the subclass.")
         for criterion in self.criterions:
             if isinstance(criterion, Loss):
                 loss = criterion(output, target)

@@ -51,6 +51,7 @@ def test(test_data_path='data/test_example.txt',
     test_dataset = CrackDataset(
         dataset_img_path=test_img_path,
         dataset_mask_path=test_mask_path,
+        temp_dir=cfg.dir_temp_ts,
     )
 
     # Build model and trainer
@@ -83,8 +84,8 @@ def test(test_data_path='data/test_example.txt',
             criterions=None,
             train_loader=None,
             val_loader=None,
-            log_dir='',  
-            chkp_dir=''
+            log_dir=None,  
+            chkp_dir=None
             ).to(device)
         print("Using UNetTrainer (single output)")
     else:
@@ -94,8 +95,8 @@ def test(test_data_path='data/test_example.txt',
             criterions=None,
             train_loader=None,
             val_loader=None,
-            log_dir='',
-            chkp_dir=''
+            log_dir=None,
+            chkp_dir=None
             ).to(device)
         print("Using DeepCrackTrainer (multi-output)")
 

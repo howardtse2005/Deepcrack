@@ -41,16 +41,16 @@ class UNetTrainer(Trainer):
             epoch_goal=epoch_goal,
         )
 
-    def _calculate_loss(self, output, target):
+    def _calculate_loss(self, output, target, requires_grad):
         """
         Calculate loss for UNet model.
         """
-        loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+        loss = torch.tensor(0.0, device=self.device, requires_grad=requires_grad)
         log_loss = {}
         for criterion in self.criterions:
             if isinstance(criterion, Loss):
-                loss = loss + criterion(output, target)
-                log_loss[criterion.name] = loss.item()
-        loss = loss / len(self.criterions)  # Average loss across all criteria
+                criterion_loss = criterion(output, target)
+                loss = loss + criterion_loss
+                log_loss[criterion.name] = criterion_loss.item()
         log_loss['total_loss'] = loss.item()
         return loss, log_loss

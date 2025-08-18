@@ -10,16 +10,23 @@ class Config:
     setproctitle.setproctitle("%s" % name)
 
     #<---------- Paths and Directories ----------->#
-    dir_img_tr = 'data/july2025_imgs/crop_img_tr'
-    dir_mask_tr = 'data/july2025_imgs/crop_msk_tr'
-    dir_img_val = 'data/july2025_imgs/crop_img_val'
-    dir_mask_val = 'data/july2025_imgs/crop_msk_val'
-    dir_img_test = 'data/july2025_imgs/img_raw_ts'
-    dir_mask_test = 'data/july2025_imgs/masks_raw_ts'
+    dir_img_tr = 'data/img_tr'
+    dir_mask_tr = 'data/mask_tr'
+    dir_img_val = 'data/img_val'
+    dir_mask_val = 'data/mask_val'
+    dir_img_test = 'data/img_ts'
+    dir_mask_test = 'data/mask_ts'
+    dir_temp_tr = 'data/temp_tr'
+    dir_temp_val = 'data/temp_val'
+    dir_temp_ts = 'data/temp_ts'
     checkpoint_path = 'checkpoints/' # Checkpoint path for training
     log_path = 'log'
-    pretrained_model = 'checkpoints/testtesttest.pth'  # Checkpoint path for testing
+    pretrained_model = 'checkpoints/unet_20250815105736/unet_200.pth'  # Checkpoint path for testing
     #<-------------------------------------------->#
+    
+    #<--------------- Dataset Settings --------------->#
+    keep_temp_tr = False  # Whether to keep temporary files for training
+    keep_temp_val = False  # Whether to keep temporary files for validation
     
     
     #<---------- Preprocessing Settings ----------->#
@@ -30,21 +37,23 @@ class Config:
     
     #random crop settings
     crop_range = (300, 1000)
-    num_crops = 10   # Total number of crops per image
-    p_hascrack = 1
-    use_raw = True
+    num_crops = 50   # Total number of crops per image
+    p_hascrack = 0.9
     kernel_size = 3  # Kernel size for convolutions
     min_size = 448   # Minimum size for images
     
-    num_crops_with_cracks = 10  # Number of crops that should contain cracks
-    train_random_crop = False # Bool to state wheteher we want to perform random cropping for training or not
-    val_random_crop = False # Bool to state wheteher we want to perform random cropping for validation or not
+    train_random_crop = True # Bool to state wheteher we want to perform random cropping for training or not
+    train_random_rotate = True
+    train_random_jitter = True # Bool to state wheteher we want to perform random jittering for training or not
+    train_random_gaussian_noise = True # Bool to state wheteher we want to perform random gaussian blur for training or not
+    val_random_crop = True # Bool to state wheteher we want to perform random cropping for validation or not
     #<-------------------------------------------->#
     
     
     #<---------- Training Settings ----------->#
-    epoch = 100
-    lr = 1e-3
+    use_checkpoint = False
+    epoch = 200
+    lr = 5e-4
     train_batch_size = 4
     val_batch_size = 4
     test_batch_size = 4
@@ -76,7 +85,7 @@ class Config:
     }
     
     # scheduler settings:
-    scheduler = None  # Options: 'step', 'plateau', 'cosine'
+    scheduler = 'plateau'  # Options: 'step', 'plateau', 'cosine', 'none'
     step_params = {
         'step_size': 10,
         'gamma': lr_decay
@@ -84,7 +93,7 @@ class Config:
     plateau_params = {
         'mode': 'max',
         'factor': lr_decay,
-        'patience': 5,
+        'patience': 10,
     }
     cosine_params = {
         'T_max': epoch,
@@ -93,10 +102,7 @@ class Config:
     #<-------------------------------------------->#
 
     #<------------- Loss Settings ---------------->#   
-    criterions = [
-        'focal'
-    ] # Options: 'focal', 'dice', 'bce'
-    
+    criterions = 'dice, bce' # Options: 'focal', 'dice', 'bce'
     focal_params = {
         'alpha': 0.75,
         'gamma': 3.0,
