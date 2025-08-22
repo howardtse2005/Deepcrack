@@ -4,7 +4,7 @@
 1.  **Clone the repository:**
     ```bash
     cd ~
-    git clone https://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@github.com/howardtse2005/Deepcrack.git
+    git clone https://github.com/howardtse2005/Slope_Crack_Seg.git
     cd Deepcrack/
     ```
 
